@@ -147,6 +147,8 @@ try {
   $v = $ws.Range($ws.Cells(1,1), $ws.Cells($last,$nc)).Value2
   # 메모에 Replacement = 무상 교체품 → 금액·달러·기초자료달러 0이 정상, 에러 아님 (작업 13)
   $repl = @{}; if ($C['메모']) { for ($r = 2; $r -le $last; $r++) { if ("$($v[$r,$C['메모']])" -match 'replacement') { $repl[$r] = $true } } }
+  # 국내 MES 금액이 빈 행(Replacement 아님) = 불량대체 → 정상 (국내 영업팀 확인 2026-10-30). 전자세금계산서 금액 칸에 '불량대체'
+  $bulD = @{}; for ($r = 2; $r -le $last; $r++) { if ("$($v[$r,$C['구분']])".Trim() -eq '국내' -and -not $repl[$r] -and -not (Num $v[$r,$C['금액']])) { $bulD[$r] = $true } }
 
   # 출고Lot 오기: 어느 자료에도 없고 비슷한 번호가 하나뿐이면 그 번호로 인식(예: DSM2608-AL6 → AL06, 8월 이월 건). MES 칸은 그대로 두고 빨간색
   $allKeys = @(@($line.Keys) + @($acc.Keys) + @($pdf.Keys) | sort -Unique)
@@ -242,6 +244,11 @@ try {
     $ws.Cells($r, $C['달러']).Value2 = 0.0; if ($ws.Cells($r, $cUsd).Value2 -ne $null) { $ws.Cells($r, $cUsd).Value2 = 0.0 }
     $bg0 = $ws.Cells($r, $C['출고일']).Interior
     foreach ($cc in @($C['달러'], $cUsd) + @($cats | % { $C[$_] } | ? { $_ })) { if ($bg0.ColorIndex -eq -4142) { $ws.Cells($r, $cc).Interior.ColorIndex = -4142 } else { $ws.Cells($r, $cc).Interior.Color = [int]$bg0.Color } }
+  }
+  # 불량대체 행: 6칸 빨간색 해제(행 배경색으로)
+  foreach ($r in @($bulD.Keys)) {
+    $bg0 = $ws.Cells($r, $C['출고일']).Interior
+    foreach ($cc in @($cats | % { $C[$_] } | ? { $_ })) { if ($bg0.ColorIndex -eq -4142) { $ws.Cells($r, $cc).Interior.ColorIndex = -4142 } else { $ws.Cells($r, $cc).Interior.Color = [int]$bg0.Color } }
   }
   # 숫자 쉼표 서식 (품번·NO 등 번호 열은 건드리지 않음). 환율은 엔화(50 미만) 소수 4자리, 달러 2자리
   $endR = $last + 1
@@ -377,7 +384,9 @@ try {
       $ym = if ($d0 -is [double]) { $dd = [DateTime]::FromOADate($d0); $dd.Year * 100 + $dd.Month } else { 0 }
       $b0 = "$($dv[$i,9])".Trim(); $q0 = [double](Num $dv[$i,6]); $a0 = [double](Num $dv[$i,8])
       $cat = if ($b0 -match '불량반출') { 'bad' } elseif ($b0 -match "^$($nextNo)월\s*이월") { 'carry' } elseif ($subK[$k0] -and -not $covD[$i]) { if (-not $b0) { $b0 = '(비고 없음 · 일별마감 소계 범위 밖)' }; 'carry' } elseif ($b0 -match '소급') { 'retro' } elseif ($a0 -lt 0 -or $q0 -lt 0) { 'ret' } elseif ($ym -eq $closeYM) { 'cur' } elseif ($ym) { 'prev' } else { 'nodate' }
-      $daily += [pscustomobject]@{ R = $i; Cust = $c0; Key = $k0; YM = $ym; Cat = $cat; Q = $q0; A = $a0; B = $b0 }
+      # 불량대체: 일별마감 금액 칸(또는 비고)에 '불량대체', 원래 금액은 비고에 적힘 (예: 맥시스 금액 '불량대체' / 비고 9219000) → 매출 아님, MES와 차이 설명용
+      $bd0 = if ("$($dv[$i,8])$b0" -match '불량대체') { $n0 = Num ($b0 -replace '[^\d\.]', ''); if ($n0) { [double]$n0 } else { 0.0 } } else { $null }
+      $daily += [pscustomobject]@{ R = $i; Cust = $c0; Key = $k0; YM = $ym; Cat = $cat; Q = $q0; A = $a0; B = $b0; BD = $bd0 }
     }
   }
   # 고객사 묶기: MES · 일별마감 · 세금계산서를 거래처명으로 맞춤(㈜·(주)·주식회사·띄어쓰기 빼고 같으면 → 아니면 앞부분이 같은 곳이 하나뿐일 때)
@@ -448,6 +457,10 @@ try {
         $domCarry += [pscustomobject]@{ Cust = $g.Cust; Q = (& $sumCat $dy @('carry') 'Q'); A = $carryA; Rows = (@($dy | ? { $_.Cat -eq 'carry' } | % R) -join ', '); B = ((@($dy | ? { $_.Cat -eq 'carry' } | % B | select -Unique)) -join ' / '); Mes = (@($rowsG | sort) -join ', ') } }
       $nBad = @($dy | ? { $_.Cat -eq 'bad' }).Count; if ($nBad) { $note += "불량반출 기록 $($nBad)건은 매출이 아니라 참고로만 둠" }
     }
+    # 불량대체: MES 금액 빈 줄 / 일별마감 '불량대체' 줄 → 정상
+    $bdM = @($rowsG | ? { $bulD[$_] }); $bdD = @($dy | ? { $_.BD -ne $null -and $_.YM -eq $closeYM }); $bdDA = [double](($bdD | measure BD -Sum).Sum)
+    if ($bdM.Count) { $note += "MES 금액이 빈 {0}줄(MES {1}행, 수량 {2:N0}개)은 불량대체 → 정상 (국내 영업팀 확인)" -f $bdM.Count, ((@($bdM | sort)) -join ', '), [double](($bdM | % { [double](Num $v[$_, $C['출고수량']]) } | measure -Sum).Sum) }
+    if ($bdD.Count) { $note += "일별마감 {0} 시트 {1}행은 불량대체(금액 {2:N0}원) → 매출 아님, 정상" -f $mLab, ((@($bdD | % R)) -join ', '), $bdDA }
     $isKH = [bool]$g.PSObject.Properties['Acc']; $khMiss = 0.0
     if ($isKH) { $saleA = [double](($g.Acc | measure Krw -Sum).Sum); $ks.Cells($krow, 12).Value2 = $saleA
       $mesLots = @($rowsG | % { $lots[$_] }); $khMiss = [double](($g.Acc | ? { $mesLots -notcontains $_.Inv } | measure Krw -Sum).Sum)
@@ -461,7 +474,12 @@ try {
         $minus = if ([math]::Abs($da) -ge 1) { $da -lt 0 } else { $dq -lt 0 }
         $estLab = if ($minus) { '반품·불량' } else { '단가 소급' }
         foreach ($cc in 6, 7) { $ks.Cells($krow, $cc).Interior.Color = 10284031 }   # 연한 노랑 = 판단해서 분류한 칸
-        $note += "MES 출고보다 일별마감 $mLab 출하가 {0} (수량 {1:N0}개 / 금액 {2:N0}원) → {3}(으)로 봄 (MES와 일별마감 차이로 판단)" -f $(if ($minus) { '적음' } else { '많음' }), $dq, $da, $estLab
+        if (($bdM.Count -or $bdD.Count) -and [math]::Abs($da + $bdDA) -lt 1) {   # 금액 차이가 불량대체로 다 설명됨(MES 금액 빈 줄은 금액 0이라 수량만 차이)
+          $note += $(if ($bdDA) { "MES 출고보다 일별마감 $mLab 출하 금액이 {0:N0}원 적음 = 일별마감 불량대체 금액 → 불량대체(정상)" -f $bdDA }
+                     else { "MES 출고와 일별마감 $mLab 출하가 수량만 {0:N0}개 다르고 금액은 같음 → MES 금액이 빈 불량대체 줄 때문(정상)" -f $dq })
+        } else {
+          $note += "MES 출고보다 일별마감 $mLab 출하가 {0} (수량 {1:N0}개 / 금액 {2:N0}원) → {3}(으)로 봄 (MES와 일별마감 차이로 판단{4})" -f $(if ($minus) { '적음' } else { '많음' }), $dq, $da, $estLab, $(if ($bdM.Count -or $bdD.Count) { ', 불량대체 포함' } else { '' })
+        }
       }
     } elseif ($rowsG.Count -and $daily.Count -and -not $isKH) {
       $ks.Cells($krow, 5).Interior.Color = $RED; $msg = "MES에는 $mLab 출고가 있는데 일별마감에 없음 → 일별마감 누락인지 확인해 주세요"
@@ -515,8 +533,9 @@ try {
     if ($fix -ne $null -and $rowsG.Count) {
       $baseA = $amt - $carry9; $chg = $fix - $baseA
       if ([math]::Abs($chg) -ge 1) {
-        $other = $chg - ($prevA + $retA + $retroA + $nodA + $khMiss)
+        $other = $chg - ($prevA + $retA + $retroA + $nodA + $khMiss - $bdDA)
         $parts = @(); if ($prevA) { $parts += "전월 출하분 +{0:N0}" -f $prevA }; if ($retA) { $parts += "반품·불량 {0:N0}" -f $retA }; if ($retroA) { $parts += "단가 소급 {0:+#,##0;-#,##0}" -f $retroA }; if ($nodA) { $parts += "출하일 없는 줄 +{0:N0}" -f $nodA }
+        if ($bdDA) { $parts += "불량대체(정상) -{0:N0}" -f $bdDA }
         if ($khMiss) { $parts += "MES {0} 출고에 없는 회계 건 +{1:N0}" -f $mLab, $khMiss }
         if ([math]::Abs($other) -ge 1) { $parts += "{0}(MES와 일별마감 차이로 판단) {1:+#,##0;-#,##0}" -f $(if ($other -lt 0) { '반품·불량' } else { '단가 소급' }), $other }
         $domShip += ,@('출하기준 금액변동', '국내', $(if ($tx.Count) { "세금계산서 $($tx.Count)매" } else { '일별마감' }), $g.Cust, 'KRW', ((@($rowsG | sort)) -join ', '), $qty, $baseA, $fix, $chg, $null, $null, $null, $null, $(if ($baseA) { '{0:+0.00;-0.00}%' -f ($chg / $baseA * 100) } else { '' }),
@@ -535,6 +554,7 @@ try {
   $ks.Columns($nK).ColumnWidth = 70; $ks.Columns($nK).WrapText = $true
   $ks.Activate() | Out-Null; $xl.ActiveWindow.SplitRow = 1; $xl.ActiveWindow.SplitColumn = 1; $xl.ActiveWindow.FreezePanes = $true
   $nDom = $krow - 2
+  foreach ($r in @($bulD.Keys)) { $ws.Cells($r, $cTaxA).NumberFormat = "@"; $ws.Cells($r, $cTaxA).Value2 = '불량대체' }   # MES 금액 빈 행 = 불량대체(정상)
 
   # 15) '전자세금계산서 금액 오류' 시트: 국내매출(9월 매출) ≠ 세금계산서 공급가액, 또는 한쪽에만 있는 고객사
   $tsName = '전자세금계산서 금액 오류'
@@ -636,9 +656,9 @@ try {
         if ($dayL) { $cmpT = "일별마감: $(if ($full[$dayL]) { $full[$dayL] } else { $dayL })" }
         if ($baseT -match '^MES 라인구분:') { $baseT = "MES: $(if ($mesL) { $mesL } else { '라인 없음' })" }
       }
-      if ($why -match 'MES 금액 없음 → 분해 불가') {   # 사용자 확인(2026-10-29): 국내 영업 담당자 입력 오류 → 에러 유지
-        $rr = 0; $who = if ([int]::TryParse("$($e[1])".Trim(), [ref]$rr) -and $rr -ge 2 -and $rr -le $last -and $C['담당자']) { "$($v[$rr, $C['담당자']])".Trim() } else { '' }
-        $why = $why -replace 'MES 금액 없음 → 분해 불가', "국내 영업 담당자 입력 오류$(if ($who) { "(담당자: $who)" }): MES에 금액이 비어 있음 → MES 금액을 입력해 주세요"
+      if ($why -match 'MES 금액 없음 → 분해 불가') {   # 국내 영업팀 확인(2026-10-30): MES 금액 빈 행 = 불량대체 → 정상(참고). (10-29의 '담당자 입력 오류' 판단을 바꿈)
+        $why = $why -replace 'MES 금액 없음 → 분해 불가', '불량대체: MES 금액이 비어 있는 것은 불량 대체품이라 정상 (국내 영업팀 확인). 금액이 없어 라인별로 나누지 않음'
+        $cls = '참고'
       }
       $why = $why -replace '비율 차이\(0\.5%p 초과\):\s*', 'MES와 9월라인의 라인별 금액 비율이 0.5% 넘게 다름 → ' -replace ' vs 참고 ', ' / 9월라인 '
       $why = [regex]::Replace($why, '수량×\(주조비\+가공비\) ([\d,]+) ≠ 금액 ([\d,]+) → 차액 (-?[\d,]+)을 가공에 반영', '수량×단가(주조비+가공비) = $1원, MES 금액 = $2원 → 차이 $3원은 단수 차이라 가공 금액에 넣음')
@@ -781,7 +801,7 @@ try {
   $es.Activate() | Out-Null; $xl.ActiveWindow.SplitRow = 1; $xl.ActiveWindow.SplitColumn = 0; $xl.ActiveWindow.FreezePanes = $true
   $errCnt = @($rowsOut | ? { $_[0] -eq '에러' }); $errList = @($errCnt | % { "  [$($_[3])] $($_[1]) MES행 $($_[4]) : $($_[9] -replace "`n", ' | ')" })
   "국내매출: 고객사 $($nDom)줄, 세금계산서 " + $(if ($taxF) { "$($taxF.Name) 매출 $($tax.Count)매" } else { "파일 없음(기초자료에 '9월세금계산서.xlsx' 넣으면 자동 비교)" })
-  "Replacement 행 $($repl.Count)개 → 오류에서 제외 $($nRepl)건 / 출하금액변동 $($nShipInv)건(원래 행 $($nShip))"
+  "Replacement 행 $($repl.Count)개 → 오류에서 제외 $($nRepl)건 / 불량대체 행 $($bulD.Count)개(MES $((@($bulD.Keys | sort)) -join ', ')행) → 참고 / 출하금액변동 $($nShipInv)건(원래 행 $($nShip))"
   "원자료 $(@($recs).Count)행 → 이월매출 $($nCarry)건, 오류목록 $($rowsOut.Count)줄 (에러 $($errCnt.Count) / 참고 $(@($rowsOut | ? { $_[0] -eq '참고' }).Count))"
   $ws.Activate() | Out-Null
   $xl.Calculation = -4105; $xl.ScreenUpdating = $true
