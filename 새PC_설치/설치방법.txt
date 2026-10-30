@@ -1,0 +1,24 @@
+[다른 PC에서 월마감 작업하기 — 처음 한 번만]
+
+준비물: 그 PC에 엑셀, VS Code + Claude Code 설치
+
+방법 1) 이 폴더(새PC_설치)를 USB·메일 등으로 옮긴 경우
+  1. 폴더를 새 PC 바탕화면 등에 둔다
+  2. 폴더 안 "새PC_설치.ps1"을 마우스 오른쪽 → "PowerShell에서 실행"
+     (실행이 막히면: 시작 → PowerShell 열고
+      powershell -ExecutionPolicy Bypass -File "폴더경로\새PC_설치.ps1")
+  3. 끝나면 VS Code에서 C:\ai 폴더를 열고 클로드에게 말하기
+
+방법 2) GitHub에서 받는 경우
+  1. https://github.com/a01042102350/date → 초록 "Code" → Download ZIP
+  2. 압축을 풀고 그 안의 "새PC_설치" 폴더에서 위 2~3번
+  또는 새 PC의 클로드에게 "GitHub a01042102350/date 의 새PC_설치 폴더로 설치해줘"라고 말하기
+
+설치되면
+  - C:\ai\도구 (작업 스크립트), C:\ai\CLAUDE.md (클로드 작업 규칙), C:\ai\기초자료 (GitHub 자료)
+  - 10분마다 C:\ai\기초자료 ↔ GitHub 자동 동기화
+  - 클로드 메모리(규칙 기억)도 복사되어, 이 PC와 같은 방식으로 작업함
+
+주의
+  - 두 PC에서 동시에 같은 달 작업 금지 (한쪽에서 끝내고 10분 뒤 다른 쪽에서)
+  - 처음 GitHub에 올릴 때 로그인 창이 뜨면 GitHub 계정으로 로그인
