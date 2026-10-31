@@ -81,8 +81,11 @@ try {
    foreach ($h in $hd) { $lab = if ($unit[$h]) { "$h ($($unit[$h]))" } else { $h }; [void]$t.Append("<th scope=`"col`">$(HE $lab)</th>") }
     [void]$t.Append("</tr></thead><tbody>")
     $skipN = 0; $tagCnt[$s.Key] = @{}
+    $guIdx = [array]::IndexOf($hd, '구분') + 1; $prevGu = $null; $guCnt = @{}   # MES 탭: 국내(위)·해외(아래) 제목 줄
+    if ($s.Key -eq 'mes' -and $guIdx -gt 0) { for ($q = 2; $q -le $last; $q++) { $guCnt["$($v[$q,$guIdx])".Trim()]++ } }
     for ($i = 2; $i -le $last; $i++) {
       if ("$($v[$i,1])" -match '^\[(결과|안내)\]' -or ($s.Key -eq 'taxerr' -and -not ("$(@(1..$nc | % { $v[$i,$_] }) -join '')".Trim()))) { if ("$($v[$i,1])".Trim()) { $notes[$s.Key] += @("$($v[$i,1])".Trim()) }; $skipN++; continue }
+      if ($s.Key -eq 'mes' -and $guIdx -gt 0) { $gu0 = "$($v[$i,$guIdx])".Trim(); if ($gu0 -ne $prevGu) { $prevGu = $gu0; [void]$t.Append("<tr class=`"sep`"><td colspan=`"$nc`">▼ $(HE $gu0) ($($guCnt[$gu0])줄 · 품번 → 출고일 순)</td></tr>") } }
       $red = @{}; foreach ($j in $redIdx) { if ([int]$ws.Cells($i, $j).Interior.Color -eq 255) { $red[$j] = $true } }
       $cls = ''
       if ($s.Key -eq 'err') { $k = "$($v[$i,1])"; $cls = if ($k -eq '에러') { 'need' } elseif ($k -eq '알림') { 'warn' } else { '' } }
@@ -143,7 +146,7 @@ td.st-bad{color:var(--bad);background:var(--badbg);font-weight:600}
 td.memo{white-space:normal;min-width:140px;max-width:260px;font-size:12px;line-height:1.4;word-break:keep-all;overflow-wrap:anywhere}
 #readme table td:first-child{font-weight:600;white-space:nowrap}#readme table td:last-child{white-space:normal;min-width:320px}
 section[hidden]{display:none}td.ser{white-space:pre-line;font-size:12px;font-variant-numeric:tabular-nums;text-align:center;min-width:200px}.upload{background:var(--tint);border-radius:10px;padding:12px 14px;margin:12px 0}.upload p{margin:0 0 8px}a.btn{display:inline-block;padding:7px 14px;border-radius:8px;background:var(--head);color:var(--headfg);text-decoration:none;margin:4px 8px 0 0;font-weight:600}a.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line);font-weight:400}p.note{background:var(--tint);border-radius:8px;padding:8px 12px;margin:6px 0}
-.tagbar{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:6px 10px;background:var(--tint);border-radius:8px}.tagbar label{white-space:nowrap;cursor:pointer}.tagn{color:var(--muted);font-size:12px}.taghint{color:var(--muted);font-size:12px}tbody tr.okd td{background:var(--carry);color:var(--muted)}tbody tr.okd td.st-bad{background:var(--carry)}input.ok,input.mk{width:16px;height:16px;cursor:pointer}.okcnt{color:var(--muted);font-size:12px}tbody tr.checked td{text-decoration:line-through;color:var(--muted)}tbody tr.checked td.st-bad{background:transparent}
+.tagbar{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:6px 10px;background:var(--tint);border-radius:8px}.tagbar label{white-space:nowrap;cursor:pointer}.tagn{color:var(--muted);font-size:12px}.taghint{color:var(--muted);font-size:12px}tbody tr.sep td{background:var(--head);color:var(--headfg);font-weight:700;padding:7px 10px;position:sticky;left:0}tbody tr.okd td{background:var(--carry);color:var(--muted)}tbody tr.okd td.st-bad{background:var(--carry)}input.ok,input.mk{width:16px;height:16px;cursor:pointer}.okcnt{color:var(--muted);font-size:12px}tbody tr.checked td{text-decoration:line-through;color:var(--muted)}tbody tr.checked td.st-bad{background:transparent}
 input.done{width:16px;height:16px;cursor:pointer}.gonecnt{color:var(--muted);font-size:12px}
 button.del{background:var(--bad);color:#fff;border-color:var(--bad)}button:disabled{opacity:.5;cursor:default}
 @media print{nav.tabs,.tools{display:none}section[hidden]{display:block}.wrap{max-height:none;overflow:visible}}
@@ -176,7 +179,7 @@ if(sv){sv.addEventListener('click',async()=>{
 const applies=[];
 document.querySelectorAll('.tools').forEach(tool=>{
   const tb=document.getElementById(tool.dataset.table),q=tool.querySelector('input[type=search]'),only=tool.querySelector('input.only'),out=tool.querySelector('.count'),hideok=tool.querySelector('input.hideok'),okc=tool.querySelector('.okcnt'),tagfs=[...tool.querySelectorAll('input.tagf')];
-  const rows=[...tb.tBodies[0].rows];
+  const rows=[...tb.tBodies[0].rows].filter(r=>!r.classList.contains('sep'));
   function apply(){const k=q.value.trim().toLowerCase();let n=0;rows.forEach(r=>{const hit=!gone.includes(r.dataset.id)&&(!k||r.textContent.toLowerCase().includes(k))&&(!only||!only.checked||r.classList.contains('need'))&&!(hideok&&hideok.checked&&r.classList.contains('okd'))&&(()=>{const sel=tagfs.filter(x=>x.checked).map(x=>x.value);if(!sel.length)return true;const tg=(r.dataset.tags||'').split(',');return sel.some(x=>tg.includes(x))})();r.hidden=!hit;if(hit)n++});out.textContent=n+' / '+rows.length+'행';if(okc)okc.textContent='확인 '+rows.filter(r=>r.classList.contains('okd')).length+' / '+rows.length}
   q.addEventListener('input',apply);if(only)only.addEventListener('change',apply);if(hideok)hideok.addEventListener('change',apply);tagfs.forEach(x=>x.addEventListener('change',apply));apply();applies.push(apply);
 });

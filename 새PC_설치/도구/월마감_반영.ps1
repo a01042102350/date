@@ -159,6 +159,27 @@ try {
   if (PutBefore @('환율', '기초자료환율', '달러', '기초자료달러') '전자세금계산서 금액') { "열 이동: 환율·기초자료환율·달러·기초자료달러 → 전자세금계산서 금액 앞" }
   if (PutBefore $chkCols '수출면장 번호') { "열 이동: 체크 칸 → 인보이스 번호 뒤" }
   if ($totMerged) { $q0 = (ColOf '출고수량') - 1; if ($q0 -ge 2) { $m0 = $ws.Range($ws.Cells($trw,1), $ws.Cells($trw,$q0)); $m0.Merge() | Out-Null; $m0.HorizontalAlignment = -4108 } }
+  # 줄 정렬 (사용자 요청 2026-10-31): 국내 위 · 해외 아래, 각각 품번 순 → 출고일 순. NO는 MES 원래 번호 그대로(체크 기록 기준)
+  #   줄 위치가 바뀌면 오류원본의 'MES 행' 번호도 새 위치로 바꿈. 국내/해외 사이 굵은 선
+  $lastS = $ws.UsedRange.Row + $ws.UsedRange.Rows.Count - 1; if ("$($ws.Cells($lastS,1).Value2)".Trim() -eq 'TOTAL') { $lastS-- }
+  $cGuS = ColOf '구분'; $cPnS = ColOf '품번'; $cDtS = ColOf '출고일'; $cNoS = ColOf 'NO'; $ncS = $ws.UsedRange.Column + $ws.UsedRange.Columns.Count - 1
+  if ($cGuS -and $cPnS -and $cDtS -and $cNoS) {
+    $noOld = @{}; for ($r0 = 2; $r0 -le $lastS; $r0++) { $noOld["$($ws.Cells($r0,$cNoS).Value2)".Trim()] = $r0 }
+    $dataS = $ws.Range($ws.Cells(2,1), $ws.Cells($lastS,$ncS))
+    for ($r0 = 2; $r0 -le $lastS; $r0++) { $bd0 = $ws.Range($ws.Cells($r0,1), $ws.Cells($r0,$ncS)).Borders.Item(8); if ($bd0.Weight -eq -4138) { $bd0.Weight = 2 } }   # 예전 굵은 구분선만 가늘게
+    $dataS.Sort($ws.Cells(2,$cGuS), 1, $ws.Cells(2,$cPnS), [Type]::Missing, 1, $ws.Cells(2,$cDtS), 1, 2) | Out-Null
+    $mapS = @{}; $moved = 0; for ($r0 = 2; $r0 -le $lastS; $r0++) { $n0 = "$($ws.Cells($r0,$cNoS).Value2)".Trim(); $old0 = $noOld[$n0]; if ($old0) { $mapS["$old0"] = $r0; if ($old0 -ne $r0) { $moved++ } } }
+    $firstOv = 0; for ($r0 = 2; $r0 -le $lastS; $r0++) { if ("$($ws.Cells($r0,$cGuS).Value2)".Trim() -eq '해외') { $firstOv = $r0; break } }
+    if ($firstOv -gt 2) { $bd = $ws.Range($ws.Cells($firstOv,1), $ws.Cells($firstOv,$ncS)).Borders.Item(8); $bd.LineStyle = 1; $bd.Weight = -4138; $bd.Color = 0 }
+    if ($moved) {
+      foreach ($sh0 in @($wb.Worksheets)) { if ($sh0.Name -eq '오류원본') {
+        $rn0 = $sh0.UsedRange.Rows.Count
+        for ($r0 = 2; $r0 -le $rn0; $r0++) { $s0 = "$($sh0.Cells($r0,2).Value2)"; if (-not $s0 -or $s0 -match '^(해외|국내)매출') { continue }
+          $s1 = [regex]::Replace($s0, '\d+', { param($m) if ($mapS.ContainsKey($m.Value)) { "$($mapS[$m.Value])" } else { $m.Value } }); if ($s1 -ne $s0) { $sh0.Cells($r0,2).NumberFormat = "@"; $sh0.Cells($r0,2).Value2 = [string]$s1 } }
+      } }
+      "줄 정렬: 국내 위 · 해외 아래(품번 → 출고일), $($moved)줄 위치 바뀜 (해외 시작 $($firstOv)행)"
+    }
+  }
   $nc = $ws.UsedRange.Columns.Count; $hdr = $ws.Range($ws.Cells(1,1), $ws.Cells(1,$nc)).Value2
   $C = @{}; for ($j = 1; $j -le $nc; $j++) { $h = "$($hdr[1,$j])".Trim(); if ($h -and -not $C.ContainsKey($h)) { $C[$h] = $j } }
   foreach ($h in '출고일','BL날짜','인보이스 번호','환율','기초자료환율','달러','기초자료달러','수출면장 번호','구분','고객사','금액','출고Lot','출고수량') { if (-not $C[$h]) { throw "mes9월에 '$h' 열이 없음" } }
