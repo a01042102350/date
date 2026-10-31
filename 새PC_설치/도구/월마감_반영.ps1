@@ -119,7 +119,8 @@ try {
   if ($wb.ReadOnly) { throw "mes9월.xls가 읽기 전용으로 열림(다른 Excel에서 열려 있음)" }
   $xl.ScreenUpdating = $false; $xl.Calculation = -4135   # 쓰는 동안 수동 계산
   # 10) 열 추가 (이미 있으면 건너뜀)
-  if ("$($ws.Range('F1').Value2)".Trim() -ne '기초자료환율') {
+  $hd0a = @(1..($ws.UsedRange.Column + $ws.UsedRange.Columns.Count - 1) | % { "$($ws.Cells(1,$_).Value2)".Trim() })
+  if ($hd0a -notcontains '기초자료환율') {
     if ("$($ws.Range('E1').Value2)".Trim() -ne '환율' -or "$($ws.Range('F1').Value2)".Trim() -ne '달러') { throw "E1/F1이 환율/달러가 아님: $($ws.Range('E1').Value2) / $($ws.Range('F1').Value2)" }
     $ws.Columns("F").Insert() | Out-Null; $ws.Range("F1").Value2 = '기초자료환율'
     $ws.Columns("H").Insert() | Out-Null; $ws.Range("H1").Value2 = '기초자료달러'
@@ -142,6 +143,22 @@ try {
     for ($k = $chkCols.Count - 1; $k -ge 0; $k--) { $ws.Columns($pos).Insert() | Out-Null; $ws.Cells(1, $pos).Value2 = [string]$chkCols[$k] }
     "열 추가: 체크 칸 $($chkCols -join ', ') (전자세금계산서 금액 앞)"
   }
+  # 열 위치 정리 (사용자 요청 2026-10-31): 체크 칸(불량·이월·반품·관세·툴링비) → 인보이스 번호 뒤(수출면장 번호 앞),
+  #   환율·기초자료환율·달러·기초자료달러 → 금액 뒤(전자세금계산서 금액 앞). 이미 그 순서면 건너뜀
+  function ColOf($name) { $n0 = $ws.UsedRange.Column + $ws.UsedRange.Columns.Count - 1; for ($j = 1; $j -le $n0; $j++) { if ("$($ws.Cells(1,$j).Value2)".Trim() -eq $name) { return $j } }; 0 }
+  function PutBefore($names, $anchor) {
+    $a0 = ColOf $anchor; if (-not $a0) { throw "'$anchor' 열이 없음" }
+    $ok = $true; for ($q = 0; $q -lt $names.Count; $q++) { if ((ColOf $names[$q]) -ne ($a0 - $names.Count + $q)) { $ok = $false } }
+    if ($ok) { return $false }
+    foreach ($nm in $names) { $s0 = ColOf $nm; if (-not $s0) { throw "'$nm' 열이 없음" }; $ws.Columns($s0).Cut() | Out-Null; $ws.Columns((ColOf $anchor)).Insert() | Out-Null }
+    $true
+  }
+  # TOTAL 줄 병합(예: A~O "TOTAL") 때문에 열을 옮길 수 없음 → 잠시 풀고, 옮긴 뒤 "TOTAL"을 출고수량 앞까지 다시 합침
+  $trw = $ws.UsedRange.Row + $ws.UsedRange.Rows.Count - 1; $totMerged = $false
+  if ("$($ws.Cells($trw,1).Value2)".Trim() -eq 'TOTAL') { $rg0 = $ws.Range($ws.Cells($trw,1), $ws.Cells($trw, $ws.UsedRange.Column + $ws.UsedRange.Columns.Count - 1)); if ($rg0.MergeCells -ne $false) { $rg0.UnMerge() | Out-Null; $totMerged = $true } }
+  if (PutBefore @('환율', '기초자료환율', '달러', '기초자료달러') '전자세금계산서 금액') { "열 이동: 환율·기초자료환율·달러·기초자료달러 → 전자세금계산서 금액 앞" }
+  if (PutBefore $chkCols '수출면장 번호') { "열 이동: 체크 칸 → 인보이스 번호 뒤" }
+  if ($totMerged) { $q0 = (ColOf '출고수량') - 1; if ($q0 -ge 2) { $m0 = $ws.Range($ws.Cells($trw,1), $ws.Cells($trw,$q0)); $m0.Merge() | Out-Null; $m0.HorizontalAlignment = -4108 } }
   $nc = $ws.UsedRange.Columns.Count; $hdr = $ws.Range($ws.Cells(1,1), $ws.Cells(1,$nc)).Value2
   $C = @{}; for ($j = 1; $j -le $nc; $j++) { $h = "$($hdr[1,$j])".Trim(); if ($h -and -not $C.ContainsKey($h)) { $C[$h] = $j } }
   foreach ($h in '출고일','BL날짜','인보이스 번호','환율','기초자료환율','달러','기초자료달러','수출면장 번호','구분','고객사','금액','출고Lot','출고수량') { if (-not $C[$h]) { throw "mes9월에 '$h' 열이 없음" } }
