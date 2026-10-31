@@ -73,7 +73,7 @@ try {
     $redIdx = if ($s.RedCols -eq '*') { 1..$nc } elseif ($s.RedCols) { @(for ($j = 1; $j -le $nc; $j++) { if ($s.RedCols -contains $hd[$j-1]) { $j } }) } else { @() }
     $t = New-Object System.Text.StringBuilder; $need = 0
     [void]$t.Append("<table id=`"t-$($s.Key)`"><thead><tr>")
-    if ($s.Key -eq 'err') { [void]$t.Append("<th scope=`"col`">해결</th>") }
+    if ($s.Key -eq 'err') { [void]$t.Append("<th scope=`"col`">해결</th>") } else { [void]$t.Append("<th scope=`"col`">확인</th>") }
     [void]$t.Append("<th scope=`"col`">#</th>")
     foreach ($h in $hd) { $lab = if ($unit[$h]) { "$h ($($unit[$h]))" } else { $h }; [void]$t.Append("<th scope=`"col`">$(HE $lab)</th>") }
     [void]$t.Append("</tr></thead><tbody>")
@@ -90,7 +90,7 @@ try {
         $rid = "$($v[$i,2])|$($v[$i,4])|$($v[$i,5])"   # 인보이스/Lot|항목|MES 행 → 삭제 기억용 키
         $trA += ' data-id="' + (HE $rid) + '"'
         [void]$t.Append("<tr$trA><td class=`"c`"><input type=`"checkbox`" class=`"done`" aria-label=`"해결`"></td><td class=`"rn`">$i</td>")
-      } else { [void]$t.Append("<tr$trA><td class=`"rn`">$i</td>") }
+      } else { $okId = "$($s.Key)|$i|$("$($v[$i,1])".Trim())"; [void]$t.Append("<tr$trA data-ok=`"$(HE $okId)`"><td class=`"c`"><input type=`"checkbox`" class=`"ok`" aria-label=`"확인`"></td><td class=`"rn`">$i</td>") }
       for ($j = 1; $j -le $nc; $j++) {
         $hn = $hd[$j-1]; $c = Fmt $v[$i,$j] $isDate[$j-1] $hn
         $cc = @(); if ($red[$j]) { $cc += 'st-bad' }; if ($unit[$hn] -and $c -match '^-?[\d,]+(\.\d+)?$') { $cc += 'num' }; if ($hn -eq '세금계산서 일련번호') { $cc += 'ser' } elseif ($memoCols -contains $hn) { $cc += 'memo' } elseif ($centerCols -contains $hn) { $cc += 'c' }
@@ -135,7 +135,7 @@ td.st-bad{color:var(--bad);background:var(--badbg);font-weight:600}
 td.memo{white-space:normal;min-width:140px;max-width:260px;font-size:12px;line-height:1.4;word-break:keep-all;overflow-wrap:anywhere}
 #readme table td:first-child{font-weight:600;white-space:nowrap}#readme table td:last-child{white-space:normal;min-width:320px}
 section[hidden]{display:none}td.ser{white-space:pre-line;font-size:12px;font-variant-numeric:tabular-nums;text-align:center;min-width:200px}.upload{background:var(--tint);border-radius:10px;padding:12px 14px;margin:12px 0}.upload p{margin:0 0 8px}a.btn{display:inline-block;padding:7px 14px;border-radius:8px;background:var(--head);color:var(--headfg);text-decoration:none;margin:4px 8px 0 0;font-weight:600}a.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line);font-weight:400}p.note{background:var(--tint);border-radius:8px;padding:8px 12px;margin:6px 0}
-tbody tr.checked td{text-decoration:line-through;color:var(--muted)}tbody tr.checked td.st-bad{background:transparent}
+tbody tr.okd td{background:var(--carry);color:var(--muted)}tbody tr.okd td.st-bad{background:var(--carry)}input.ok{width:16px;height:16px;cursor:pointer}.okcnt{color:var(--muted);font-size:12px}tbody tr.checked td{text-decoration:line-through;color:var(--muted)}tbody tr.checked td.st-bad{background:transparent}
 input.done{width:16px;height:16px;cursor:pointer}.gonecnt{color:var(--muted);font-size:12px}
 button.del{background:var(--bad);color:#fff;border-color:var(--bad)}button:disabled{opacity:.5;cursor:default}
 @media print{nav.tabs,.tools{display:none}section[hidden]{display:block}.wrap{max-height:none;overflow:visible}}
@@ -148,12 +148,17 @@ let start='readme';try{start=localStorage.getItem('tab1028')||'readme'}catch(e){
 // 오류목록: 해결 체크 → '체크한 항목 삭제'로 숨김(이 브라우저에 기억), '되살리기'로 복구
 const GKEY='resolved1028';let gone=[];try{gone=JSON.parse(localStorage.getItem(GKEY)||'[]')}catch(e){gone=[]}
 function saveGone(){try{localStorage.setItem(GKEY,JSON.stringify(gone))}catch(e){}}
+// 모든 탭: 줄마다 '확인' 체크 → 회색, 이 브라우저에 기억. '확인한 줄 숨기기'로 숨김
+const OKEY='checked_ok';let okSet={};try{okSet=JSON.parse(localStorage.getItem(OKEY)||'{}')}catch(e){okSet={}}
+function saveOk(){try{localStorage.setItem(OKEY,JSON.stringify(okSet))}catch(e){}}
+document.querySelectorAll('tr[data-ok]').forEach(r=>{const cb=r.querySelector('input.ok');if(okSet[r.dataset.ok]){cb.checked=true;r.classList.add('okd')}
+  cb.addEventListener('change',()=>{r.classList.toggle('okd',cb.checked);if(cb.checked)okSet[r.dataset.ok]=1;else delete okSet[r.dataset.ok];saveOk();applies.forEach(f=>f())})});
 const applies=[];
 document.querySelectorAll('.tools').forEach(tool=>{
-  const tb=document.getElementById(tool.dataset.table),q=tool.querySelector('input[type=search]'),only=tool.querySelector('input.only'),out=tool.querySelector('.count');
+  const tb=document.getElementById(tool.dataset.table),q=tool.querySelector('input[type=search]'),only=tool.querySelector('input.only'),out=tool.querySelector('.count'),hideok=tool.querySelector('input.hideok'),okc=tool.querySelector('.okcnt');
   const rows=[...tb.tBodies[0].rows];
-  function apply(){const k=q.value.trim().toLowerCase();let n=0;rows.forEach(r=>{const hit=!gone.includes(r.dataset.id)&&(!k||r.textContent.toLowerCase().includes(k))&&(!only||!only.checked||r.classList.contains('need'));r.hidden=!hit;if(hit)n++});out.textContent=n+' / '+rows.length+'행'}
-  q.addEventListener('input',apply);if(only)only.addEventListener('change',apply);apply();applies.push(apply);
+  function apply(){const k=q.value.trim().toLowerCase();let n=0;rows.forEach(r=>{const hit=!gone.includes(r.dataset.id)&&(!k||r.textContent.toLowerCase().includes(k))&&(!only||!only.checked||r.classList.contains('need'))&&!(hideok&&hideok.checked&&r.classList.contains('okd'));r.hidden=!hit;if(hit)n++});out.textContent=n+' / '+rows.length+'행';if(okc)okc.textContent='확인 '+rows.filter(r=>r.classList.contains('okd')).length+' / '+rows.length}
+  q.addEventListener('input',apply);if(only)only.addEventListener('change',apply);if(hideok)hideok.addEventListener('change',apply);apply();applies.push(apply);
 });
 const et=document.getElementById('t-err');
 if(et){
@@ -188,9 +193,10 @@ foreach ($r in $readme) { [void]$h.Append("<tr><td>$(HE $r[0])</td><td>$(HE $r[1
 [void]$h.Append("</tbody></table></div></section>")
 foreach ($s in $sheets) {
   $lbl = if ($s.Key -eq 'err') { '에러만 보기' } else { '빨간 칸 있는 행만 보기' }
+  $okBox = if ($s.Key -ne 'err') { '<label><input type="checkbox" class="hideok"> 확인한 줄 숨기기</label><span class="okcnt"></span>' } else { '' }
   $onlyBox = if ($s.Key -in 'carry', 'ship') { '' } else { "<label><input type=`"checkbox`" class=`"only`"> $lbl</label>" }
   $errBtns = if ($s.Key -eq 'err') { "<button type=`"button`" id=`"del-done`" class=`"del`">체크한 항목 삭제(해결)</button><button type=`"button`" id=`"restore`">삭제한 항목 되살리기</button><span id=`"gonecnt`" class=`"gonecnt`"></span>" } else { '' }
-  [void]$h.Append("<section class=`"sheet`" id=`"s-$($s.Key)`"><h2>$(HE $s.Title)</h2><p class=`"sub`">$(HE $s.Desc)</p>$(($notes[$s.Key] | % { ""<p class=`""note`""><b>$(HE $_)</b></p>"" }) -join '')<div class=`"tools`" data-table=`"t-$($s.Key)`"><input type=`"search`" placeholder=`"검색 (예: DSM2609-SK03, 신코, 에러)`" aria-label=`"$(HE $s.Title) 검색`">$onlyBox$errBtns<span class=`"count`"></span></div><div class=`"wrap`">$($tables[$s.Key])</div></section>")
+  [void]$h.Append("<section class=`"sheet`" id=`"s-$($s.Key)`"><h2>$(HE $s.Title)</h2><p class=`"sub`">$(HE $s.Desc)</p>$(($notes[$s.Key] | % { ""<p class=`""note`""><b>$(HE $_)</b></p>"" }) -join '')<div class=`"tools`" data-table=`"t-$($s.Key)`"><input type=`"search`" placeholder=`"검색 (예: DSM2609-SK03, 신코, 에러)`" aria-label=`"$(HE $s.Title) 검색`">$onlyBox$errBtns$okBox<span class=`"count`"></span></div><div class=`"wrap`">$($tables[$s.Key])</div></section>")
 }
 [void]$h.Append("</main><script>$js</script></body></html>")
 [IO.File]::WriteAllText($Out, $h.ToString(), (New-Object Text.UTF8Encoding $false))
