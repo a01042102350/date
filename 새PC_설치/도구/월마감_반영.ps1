@@ -165,13 +165,27 @@ try {
   $last = $ws.UsedRange.Row + $ws.UsedRange.Rows.Count - 1
   if ("$($ws.Cells($last,1).Value2)".Trim() -eq 'TOTAL') { $tot = $last; $last-- } else { $tot = $null }
   $cTaxA = $C['전자세금계산서 금액']; $cTaxN = $C['세금계산서 일련번호']   # 매번 새로 채움
-  foreach ($h0 in $chkCols) {   # 체크 칸: 빈칸만 ☐로 채우고, 누르면 ☐/☑ 고르게 (이미 ☑인 것은 그대로)
+  # 체크 칸: 숫자 1 = ☑, 0 = ☐ (서식으로 표시). 칸 선택 → 1 입력 → Enter, 여러 칸은 선택 → 1 → Ctrl+Enter. 예전 ☑/☐ 글자는 1/0으로 바꿈. 체크 내용은 지우지 않음
+  # HTML '체크 저장'으로 만든 체크_YYYYMM*.json 이 월 폴더에 있으면 여기서 합친 뒤 이름을 '체크_반영됨_…'으로 바꿈
+  $chkJson = @(Get-ChildItem $base -File -Filter '체크_*.json' -ErrorAction SilentlyContinue | ? { $_.Name -notmatch '반영됨' } | sort LastWriteTime)
+  $noCol = $C['NO']; $noRow = @{}; if ($noCol) { for ($r0 = 2; $r0 -le $last; $r0++) { $k0 = "$($ws.Cells($r0,$noCol).Value2)".Trim(); if ($k0) { $noRow[$k0] = $r0 } } }
+  foreach ($h0 in $chkCols) {
     $cc = $C[$h0]; if (-not $cc) { continue }
     $rg = $ws.Range($ws.Cells(2,$cc), $ws.Cells($last,$cc))
-    try { $rg.Validation.Delete() } catch {}; $rg.Validation.Add(3, 1, 1, "☑,☐") | Out-Null; $rg.Validation.InCellDropdown = $true
-    $rg.HorizontalAlignment = -4108; $ws.Columns($cc).ColumnWidth = 6; $ws.Cells(1,$cc).HorizontalAlignment = -4108
-    $cv = $rg.Value2; for ($r0 = 1; $r0 -le ($last - 1); $r0++) { if (-not "$($cv[$r0,1])".Trim()) { $ws.Cells($r0 + 1, $cc).Value2 = '☐' } }
+    try { $rg.Validation.Delete() } catch {}
+    $rg.Validation.Add(1, 1, 1, "0", "1") | Out-Null; $rg.Validation.InputTitle = "$h0 체크"; $rg.Validation.InputMessage = "1 = 체크(☑), 0 = 해제(☐)"; $rg.Validation.ErrorMessage = "1(체크) 또는 0(해제)만 입력해 주세요"
+    $rg.NumberFormat = '[=1]"☑";"☐"'; $rg.HorizontalAlignment = -4108; $ws.Columns($cc).ColumnWidth = 6; $ws.Cells(1,$cc).HorizontalAlignment = -4108
+    $cv = $rg.Value2
+    for ($r0 = 1; $r0 -le ($last - 1); $r0++) { $x0 = "$($cv[$r0,1])".Trim(); $n0 = if ($x0 -eq '☑' -or $x0 -eq '1') { 1 } else { 0 }; if ("$($cv[$r0,1])" -ne "$n0") { $ws.Cells($r0 + 1, $cc).Value2 = [double]$n0 } }
   }
+  $nJ = 0
+  foreach ($jf in $chkJson) {
+    $js = Get-Content $jf.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($pp in $js.PSObject.Properties) { $kk = $pp.Name -split '\|'; if ($kk.Count -ne 2) { continue }; $r0 = $noRow[$kk[0]]; $cc = $C[$kk[1]]; if ($r0 -and $cc -and ($chkCols -contains $kk[1])) { $ws.Cells($r0, $cc).Value2 = [double]$(if ([int]$pp.Value) { 1 } else { 0 }); $nJ++ } }
+    Rename-Item $jf.FullName ("체크_반영됨_" + (Get-Date -Format 'yyyyMMdd_HHmm') + "_" + $jf.Name.Substring(3)) -ErrorAction SilentlyContinue
+  }
+  if ($chkJson.Count) { "HTML 체크 파일 $($chkJson.Count)개 → 엑셀에 $($nJ)칸 반영" }
+
   foreach ($cc in $cTaxA, $cTaxN) { $ws.Range($ws.Cells(2,$cc), $ws.Cells($last,$cc)).ClearContents() | Out-Null }
   $ws.Range($ws.Cells(2,$cTaxA), $ws.Cells($last + 1,$cTaxA)).NumberFormat = "#,##0"
   $ws.Columns($cTaxN).ColumnWidth = 27; $ws.Columns($cTaxN).WrapText = $true   # 일련번호(24자리)는 여러 개면 한 줄에 하나씩

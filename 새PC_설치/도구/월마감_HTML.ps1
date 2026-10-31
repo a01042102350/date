@@ -102,7 +102,7 @@ try {
         $hn = $hd[$j-1]; $c = Fmt $v[$i,$j] $isDate[$j-1] $hn
         $cc = @(); if ($red[$j]) { $cc += 'st-bad' }; if ($unit[$hn] -and $c -match '^-?[\d,]+(\.\d+)?$') { $cc += 'num' }; if ($hn -eq '세금계산서 일련번호') { $cc += 'ser' } elseif ($memoCols -contains $hn) { $cc += 'memo' } elseif ($centerCols -contains $hn) { $cc += 'c' }
         if ($s.Key -eq 'err' -and $j -eq 1 -and $c -eq '에러') { $cc += 'st-bad' }
-        if ($s.Key -eq 'mes' -and $chkCols -contains $hn) { $mkId = "$($v[$i,1])|$hn"; [void]$t.Append("<td class=`"c`"><input type=`"checkbox`" class=`"mk`" data-k=`"$(HE $mkId)`" aria-label=`"$hn`"$(if ($c -eq '☑') { ' checked' })></td>"); continue }   # 사람이 직접 체크하는 칸
+        if ($s.Key -eq 'mes' -and $chkCols -contains $hn) { $mkId = "$($v[$i,1])|$hn"; [void]$t.Append("<td class=`"c`"><input type=`"checkbox`" class=`"mk`" data-k=`"$(HE $mkId)`" aria-label=`"$hn`"$(if ($c -in '☑', '1') { ' checked' })></td>"); continue }   # 사람이 직접 체크하는 칸 (엑셀 1 = ☑)
         $tdA = if ($cc) { ' class="' + ($cc -join ' ') + '"' } else { '' }
         [void]$t.Append("<td$tdA>$(HE $c)</td>")
       }
@@ -164,6 +164,15 @@ document.querySelectorAll('tr[data-ok]').forEach(r=>{const cb=r.querySelector('i
 // MES 탭 체크 칸(불량·이월·반품·관세·툴링비): 누르면 이 브라우저에 기억 (엑셀 파일에는 저장되지 않음)
 const MKEY='mes_checks';let mk={};try{mk=JSON.parse(localStorage.getItem(MKEY)||'{}')}catch(e){mk={}}
 document.querySelectorAll('input.mk').forEach(cb=>{const k=cb.dataset.k;if(k in mk)cb.checked=!!mk[k];cb.addEventListener('change',()=>{mk[k]=cb.checked?1:0;try{localStorage.setItem(MKEY,JSON.stringify(mk))}catch(e){}})});
+// '체크 저장': 엑셀과 달라진 체크만 체크_YYYYMM.json 으로 저장 → 월 폴더에 두면 다음 반영 때 엑셀에 합쳐짐
+const sv=document.getElementById('mk-save');
+if(sv){sv.addEventListener('click',async()=>{
+  const o={};let n=0;document.querySelectorAll('input.mk').forEach(cb=>{if(cb.checked!==cb.defaultChecked){o[cb.dataset.k]=cb.checked?1:0;n++}});
+  const msg=document.getElementById('mk-msg');if(!n){msg.textContent='엑셀과 달라진 체크가 없습니다.';return}
+  const txt=JSON.stringify(o,null,1),name='체크_'+sv.dataset.ym+'.json';
+  try{if(window.showSaveFilePicker){const fh=await showSaveFilePicker({suggestedName:name,types:[{description:'체크 파일',accept:{'application/json':['.json']}}]});const w=await fh.createWritable();await w.write(txt);await w.close();msg.textContent=n+'칸 저장함. 이 파일이 '+sv.dataset.dir+' 폴더에 있으면 다음 반영 때 엑셀에 들어갑니다.';return}}catch(e){if(e.name==='AbortError')return}
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'application/json'}));a.download=name;a.click();
+  msg.textContent=n+'칸 → 내려받기 폴더에 '+name+' 저장됨. '+sv.dataset.dir+' 폴더로 옮겨 주세요.'})}
 const applies=[];
 document.querySelectorAll('.tools').forEach(tool=>{
   const tb=document.getElementById(tool.dataset.table),q=tool.querySelector('input[type=search]'),only=tool.querySelector('input.only'),out=tool.querySelector('.count'),hideok=tool.querySelector('input.hideok'),okc=tool.querySelector('.okcnt'),tagfs=[...tool.querySelectorAll('input.tagf')];
@@ -207,8 +216,10 @@ foreach ($s in $sheets) {
   $tc0 = $tagCnt[$s.Key]; $tagBox = if ($tc0 -and $tc0.Count) { '<div class="tagbar"><b>보기:</b> ' + ((@($tagOrder | ? { $tc0[$_] } | % { "<label><input type=`"checkbox`" class=`"tagf`" value=`"$_`"> $_ <span class=`"tagn`">$($tc0[$_])</span></label>" })) -join '') + ' <span class="taghint">(아무것도 안 고르면 전체)</span></div>' } else { '' }
   $okBox = if ($s.Key -ne 'err') { '<label><input type="checkbox" class="hideok"> 확인한 줄 숨기기</label><span class="okcnt"></span>' } else { '' }
   $onlyBox = if ($s.Key -in 'carry', 'ship') { '' } else { "<label><input type=`"checkbox`" class=`"only`"> $lbl</label>" }
+  $ymH = Split-Path (Split-Path $XlsPath -Parent) -Leaf; $dirH = Split-Path $XlsPath -Parent
+  $saveBtn = if ($s.Key -eq 'mes') { "<button type=`"button`" id=`"mk-save`" class=`"del`" data-ym=`"$ymH`" data-dir=`"$(HE $dirH)`">체크 저장</button><span id=`"mk-msg`" class=`"gonecnt`"></span>" } else { '' }
   $errBtns = if ($s.Key -eq 'err') { "<button type=`"button`" id=`"del-done`" class=`"del`">체크한 항목 삭제(해결)</button><button type=`"button`" id=`"restore`">삭제한 항목 되살리기</button><span id=`"gonecnt`" class=`"gonecnt`"></span>" } else { '' }
-  [void]$h.Append("<section class=`"sheet`" id=`"s-$($s.Key)`"><h2>$(HE $s.Title)</h2><p class=`"sub`">$(HE $s.Desc)</p>$(($notes[$s.Key] | % { ""<p class=`""note`""><b>$(HE $_)</b></p>"" }) -join '')<div class=`"tools`" data-table=`"t-$($s.Key)`"><input type=`"search`" placeholder=`"검색 (예: DSM2609-SK03, 신코, 에러)`" aria-label=`"$(HE $s.Title) 검색`">$onlyBox$errBtns<span class=`"count`"></span>$tagBox</div><div class=`"wrap`">$($tables[$s.Key])</div></section>")
+  [void]$h.Append("<section class=`"sheet`" id=`"s-$($s.Key)`"><h2>$(HE $s.Title)</h2><p class=`"sub`">$(HE $s.Desc)</p>$(($notes[$s.Key] | % { ""<p class=`""note`""><b>$(HE $_)</b></p>"" }) -join '')<div class=`"tools`" data-table=`"t-$($s.Key)`"><input type=`"search`" placeholder=`"검색 (예: DSM2609-SK03, 신코, 에러)`" aria-label=`"$(HE $s.Title) 검색`">$onlyBox$errBtns$saveBtn<span class=`"count`"></span>$tagBox</div><div class=`"wrap`">$($tables[$s.Key])</div></section>")
 }
 [void]$h.Append("</main><script>$js</script></body></html>")
 [IO.File]::WriteAllText($Out, $h.ToString(), (New-Object Text.UTF8Encoding $false))
