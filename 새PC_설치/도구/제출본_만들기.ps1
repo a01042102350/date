@@ -29,7 +29,7 @@ try {
     }
   }
   "mes 시트: 회색(이월) $($cnt.Gray) / 연한 노랑(달러) $($cnt.Yel) / 해제 $($cnt.Clear) / 빨간색 유지(에러) $($cnt.Keep)"
-  foreach ($s in @($wb.Worksheets)) { if ($s.Name -eq '오류원본') { $s.Visible = -1; $s.Delete(); "숨은 시트 '오류원본' 삭제" } }
+  foreach ($s in @($wb.Worksheets)) { if ($s.Name -in '오류원본', 'MES원본') { $s.Visible = -1; $nm0 = $s.Name; $s.Delete(); "숨은 시트 '$nm0' 삭제" } }
   $es = $wb.Worksheets.Item("오류목록"); $en = $es.UsedRange.Rows.Count; $del = 0; $delRaw = 0
   for ($i = $en; $i -ge 2; $i--) { if ("$($es.Cells($i,10).Text)" -match '이번 달 비교에서 제외') { $delRaw += [double]("0" + $es.Cells($i,6).Value2); $es.Range("A${i}:J${i}").Delete(-4162) | Out-Null; $del++ } }   # 오른쪽 요약표는 그대로 두고 A:J만 위로
   for ($i = 1; $i -le 12; $i++) { if ("$($es.Cells($i,12).Text)" -eq '참고') { $es.Cells($i,13).Value2 = [double]($es.Cells($i,13).Value2 - $del); $es.Cells($i,14).Value2 = [double]($es.Cells($i,14).Value2 - $delRaw) } }

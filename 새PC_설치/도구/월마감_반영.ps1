@@ -183,6 +183,45 @@ try {
       "줄 정렬: 국내 위 · 해외 아래(품번 → 출고일), $($moved)줄 위치 바뀜 (해외 시작 $($firstOv)행)"
     }
   }
+  # 금액 직접 수정 (사용자 선택 2026-10-31, 방법 1): MES 원래 값은 완전 숨김 시트 'MES원본'에 NO 기준으로 보관(처음 본 값).
+  #   단가만 고치면 금액 = 수량 × 단가. 바뀐 단가·금액 칸은 연한 노랑 + "원래 ○원" 메모, 6칸·달러는 새 금액 비율로 다시 계산. 되돌리면 표시도 지움
+  $EDIT = 13434879; $amtEdits = @()
+  $lastE = $ws.UsedRange.Row + $ws.UsedRange.Rows.Count - 1; if ("$($ws.Cells($lastE,1).Value2)".Trim() -eq 'TOTAL') { $lastE-- }
+  $eCols = @('출고수량', '단가', '금액', '달러', '사형', '자동', '금형 주조', '가공1(2공장)', '가공2(5공장)', '가공3(3공장)')
+  $eC = @{}; foreach ($h0 in @('NO', '메모', '출고Lot', '고객사', '환율') + $eCols) { $eC[$h0] = ColOf $h0 }
+  $os = $null; foreach ($sh0 in @($wb.Worksheets)) { if ($sh0.Name -eq 'MES원본') { $os = $sh0 } }
+  if (-not $os) { $os = $wb.Worksheets.Add([Type]::Missing, $wb.Worksheets.Item($wb.Worksheets.Count)); $os.Name = 'MES원본'; $os.Cells(1,1).Value2 = 'NO'; for ($q = 0; $q -lt $eCols.Count; $q++) { $os.Cells(1, $q + 2).Value2 = [string]$eCols[$q] }; $os.Visible = 2; "숨은 시트 'MES원본' 만듦 (MES 원래 값 보관)" }
+  $orig = @{}; $on0 = $os.UsedRange.Rows.Count; for ($r0 = 2; $r0 -le $on0; $r0++) { $k0 = "$($os.Cells($r0,1).Value2)".Trim(); if ($k0) { $orig[$k0] = $r0 } }
+  $oNext = $on0 + 1
+  for ($r0 = 2; $r0 -le $lastE; $r0++) {
+    $no = "$($ws.Cells($r0,$eC['NO']).Value2)".Trim(); if (-not $no) { continue }
+    if (-not $orig.ContainsKey($no)) {   # 처음 보는 줄 = 지금 값이 원래 값
+      $os.Cells($oNext,1).NumberFormat = "@"; $os.Cells($oNext,1).Value2 = [string]$no
+      for ($q = 0; $q -lt $eCols.Count; $q++) { $c0 = $eC[$eCols[$q]]; if ($c0) { $x0 = $ws.Cells($r0,$c0).Value2; if ($x0 -ne $null) { $os.Cells($oNext, $q + 2).Value2 = $x0 } } }
+      $orig[$no] = $oNext; $oNext++; continue
+    }
+    $or = $orig[$no]; $o = @{}; for ($q = 0; $q -lt $eCols.Count; $q++) { $o[$eCols[$q]] = $os.Cells($or, $q + 2).Value2 }
+    $qty = [double](Num $ws.Cells($r0,$eC['출고수량']).Value2); $pr = Num $ws.Cells($r0,$eC['단가']).Value2; $am = Num $ws.Cells($r0,$eC['금액']).Value2
+    $oPr = Num $o['단가']; $oAm = Num $o['금액']
+    $prCh = ($pr -ne $null -and $oPr -ne $null -and [math]::Abs($pr - $oPr) -ge 0.5) -or (($pr -eq $null) -ne ($oPr -eq $null))
+    $amCh = ($am -ne $null -and $oAm -ne $null -and [math]::Abs($am - $oAm) -ge 0.5) -or (($am -eq $null) -ne ($oAm -eq $null))
+    if ($prCh -and -not $amCh -and $pr -ne $null -and $qty) { $am = [math]::Round($qty * $pr); $ws.Cells($r0,$eC['금액']).Value2 = [double]$am; $amCh = [math]::Abs($am - [double]$oAm) -ge 0.5 }   # 단가만 고침 → 금액 자동
+    foreach ($pair in @(@('단가', $prCh, $oPr), @('금액', $amCh, $oAm))) {
+      $cell = $ws.Cells($r0, $eC[$pair[0]]); try { $cell.ClearComments() | Out-Null } catch {}
+      if ($pair[1]) { $cell.Interior.Color = $EDIT; $cell.AddComment(("원래 {0} {1:N0}원 (MES)" -f $pair[0], [double]("0" + $pair[2]))) | Out-Null }
+      elseif ([int]$cell.Interior.Color -eq $EDIT) { $cell.Interior.ColorIndex = -4142 }
+    }
+    # 6칸·달러: 금액이 바뀌면 원래 비율대로, 되돌리면 원래 값
+    $ratio = if ($amCh -and $oAm) { [double]$am / [double]$oAm } else { 1.0 }
+    $six = @(@('사형', '자동', '금형 주조', '가공1(2공장)', '가공2(5공장)', '가공3(3공장)') | ? { $eC[$_] -and (Num $o[$_]) })
+    $acc6 = 0.0; for ($q = 0; $q -lt $six.Count; $q++) { $c0 = $eC[$six[$q]]; $nv = if ($q -eq $six.Count - 1 -and $amCh) { [double]$am - $acc6 } else { [math]::Round([double](Num $o[$six[$q]]) * $ratio) }; $acc6 += $nv; if ([math]::Abs([double](Num $ws.Cells($r0,$c0).Value2) - $nv) -ge 0.5) { $ws.Cells($r0,$c0).Value2 = $nv } }
+    if ($eC['달러'] -and (Num $o['달러'])) { $nd = [math]::Round([double](Num $o['달러']) * $ratio, 2); if ([math]::Abs([double](Num $ws.Cells($r0,$eC['달러']).Value2) - $nd) -ge 0.005) { $ws.Cells($r0,$eC['달러']).Value2 = $nd } }
+    if ($amCh -or $prCh) {
+      $memo = "$($ws.Cells($r0,$eC['메모']).Value2)".Trim()
+      $amtEdits += ,@('금액 수정', "$r0", "$($ws.Cells($r0,$eC['고객사']).Value2)".Trim(), "$($ws.Cells($r0,$eC['출고Lot']).Value2)".Trim(), ('원래 단가 {0:N0}원 / 금액 {1:N0}원' -f [double]("0" + $oPr), [double]("0" + $oAm)), ('수정 단가 {0:N0}원 / 금액 {1:N0}원' -f [double]("0" + $pr), [double]("0" + $am)), 'mes 시트 직접 수정', (("금액 수정: 원래 {0:N0}원 → {1:N0}원 ({2:+#,##0;-#,##0}원)" -f [double]("0" + $oAm), [double]("0" + $am), ([double]("0" + $am) - [double]("0" + $oAm))) + $(if ($memo) { " / 사유(메모): $memo" } else { " / 사유를 메모 칸에 적어 주세요" }) + " (참고)"))
+    }
+  }
+  if ($amtEdits.Count) { "금액 직접 수정된 줄: $($amtEdits.Count)개 (노란 칸, 원래 금액은 메모)" }
   $nc = $ws.UsedRange.Columns.Count; $hdr = $ws.Range($ws.Cells(1,1), $ws.Cells(1,$nc)).Value2
   $C = @{}; for ($j = 1; $j -le $nc; $j++) { $h = "$($hdr[1,$j])".Trim(); if ($h -and -not $C.ContainsKey($h)) { $C[$h] = $j } }
   foreach ($h in '출고일','BL날짜','인보이스 번호','환율','기초자료환율','달러','기초자료달러','수출면장 번호','구분','고객사','금액','출고Lot','출고수량') { if (-not $C[$h]) { throw "mes9월에 '$h' 열이 없음" } }
@@ -669,7 +708,7 @@ try {
   $errs = New-Object System.Collections.ArrayList
   # 행 단위 원자료는 숨김 시트 '오류원본'에 보관(없으면 예전 형식 '오류목록'에서). 이번에 원본 시트가 없는 항목(예전 스크립트가 만든 환율·달러 등)은 그대로 이어받음
   $have = @{}; foreach ($s in @($wb.Worksheets)) { $have[$s.Name] = $s }
-  $regen = @($maps.Keys | ? { $have[$_] } | % { $maps[$_].Item }) + @('면장별합계', '해외매출', '국내매출')
+  $regen = @($maps.Keys | ? { $have[$_] } | % { $maps[$_].Item }) + @('면장별합계', '해외매출', '국내매출', '금액 수정')
   $old = if ($have['오류원본']) { $have['오류원본'] } elseif ($have['오류목록'] -and "$($have['오류목록'].Range('B1').Value2)" -eq '항목') { $have['오류목록'] } else { $null }
   if ($old) {
     $off = if ($old.Name -eq '오류원본') { 1 } else { 2 }   # 예전 오류목록은 A열이 분류
@@ -686,7 +725,7 @@ try {
   # 해외매출 에러내용도 포함
   $gv = $gs.UsedRange.Value2; $gn = $gs.UsedRange.Rows.Count
   for ($i = 2; $i -le $gn; $i++) { $e = "$($gv[$i,21])"; if ($e -match '≠|비교 불가|금액 다름') { [void]$errs.Add(@('해외매출', "해외매출 R$i", "$($gv[$i,4])", "$($gv[$i,2])", '회계', '', "$($gv[$i,20])", $e)) } }
-  foreach ($x in @($domErr) + @($domNote)) { [void]$errs.Add($x) }   # 국내매출: 세금계산서·MES 한쪽에만 있는 건
+  foreach ($x in @($domErr) + @($domNote) + @($amtEdits)) { [void]$errs.Add($x) }   # 국내매출: 세금계산서·MES 한쪽에만 있는 건
   # 원자료 → 숨김 시트 '오류원본' (다음 실행 때 다시 읽음)
   if ($have['오류원본']) { $have['오류원본'].Visible = -1; $have['오류원본'].Delete() }
   $rs = $wb.Worksheets.Add([Type]::Missing, $wb.Worksheets.Item($wb.Worksheets.Count)); $rs.Name = '오류원본'
