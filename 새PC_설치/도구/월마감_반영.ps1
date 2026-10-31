@@ -156,10 +156,11 @@ try {
   # TOTAL 줄 병합(예: A~O "TOTAL") 때문에 열을 옮길 수 없음 → 잠시 풀고, 옮긴 뒤 "TOTAL"을 출고수량 앞까지 다시 합침
   $trw = $ws.UsedRange.Row + $ws.UsedRange.Rows.Count - 1; $totMerged = $false
   if ("$($ws.Cells($trw,1).Value2)".Trim() -eq 'TOTAL') { $rg0 = $ws.Range($ws.Cells($trw,1), $ws.Cells($trw, $ws.UsedRange.Column + $ws.UsedRange.Columns.Count - 1)); if ($rg0.MergeCells -ne $false) { $rg0.UnMerge() | Out-Null; $totMerged = $true } }
-  if (PutBefore @('전자세금계산서 금액', '환율', '기초자료환율', '달러', '기초자료달러') '출고Lot') { "열 이동: 금액 뒤 = 전자세금계산서 금액 → 환율·기초자료환율·달러·기초자료달러" }   # 사용자 요청 2026-10-31
+  if (PutBefore @('전자세금계산서 금액', '환율', '기초자료환율', '달러', '기초자료달러') '사형') { "열 이동: 금액 뒤 = 전자세금계산서 금액 → 환율·기초자료환율·달러·기초자료달러" }   # 사용자 요청 2026-10-31
   $cMemo = ColOf '메모'; $cEnd = $ws.UsedRange.Column + $ws.UsedRange.Columns.Count - 1   # 메모는 맨 끝 열 (사용자 요청 2026-10-31)
   if ($cMemo -and $cMemo -ne $cEnd) { $ws.Columns($cMemo).Cut() | Out-Null; $ws.Columns($cEnd + 1).Insert() | Out-Null; "열 이동: 메모 → 맨 끝" }
   if (PutBefore $chkCols '수출면장 번호') { "열 이동: 체크 칸 → 인보이스 번호 뒤" }
+  if (PutBefore @('담당자', '출고Lot') '구분') { "열 이동: 담당자·출고Lot → 구분 앞" }   # 사용자 요청 2026-10-31
   if ($totMerged) { $q0 = (ColOf '출고수량') - 1; if ($q0 -ge 2) { $m0 = $ws.Range($ws.Cells($trw,1), $ws.Cells($trw,$q0)); $m0.Merge() | Out-Null; $m0.HorizontalAlignment = -4108 } }
   # 줄 정렬 (사용자 요청 2026-10-31): 국내 위 · 해외 아래, 각각 품번 순 → 출고일 순. NO는 MES 원래 번호 그대로(체크 기록 기준)
   #   줄 위치가 바뀌면 오류원본의 'MES 행' 번호도 새 위치로 바꿈. 국내/해외 사이 굵은 선
