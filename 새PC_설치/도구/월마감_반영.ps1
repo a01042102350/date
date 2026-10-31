@@ -134,12 +134,27 @@ try {
   if (@(1..$nc0 | % { "$($ws.Cells(1,$_).Value2)".Trim() }) -notcontains '세금계산서 일련번호') {
     $ws.Cells(1, $nc0 + 1).Value2 = '세금계산서 일련번호'; $ws.Cells(1, $nc0).Copy() | Out-Null; $ws.Cells(1, $nc0 + 1).PasteSpecial(-4122) | Out-Null; "열 추가: 세금계산서 일련번호 (맨 끝)"
   }
+  # 사람이 직접 체크하는 칸 (☐/☑) — 전자세금계산서 금액 앞. 반영을 다시 해도 체크 내용은 지우지 않음 (사용자 요청 2026-10-31)
+  $chkCols = @('불량', '이월', '반품', '관세', '툴링비')
+  $hd1 = @(1..($ws.UsedRange.Column + $ws.UsedRange.Columns.Count - 1) | % { "$($ws.Cells(1,$_).Value2)".Trim() })
+  if ($hd1 -notcontains $chkCols[0]) {
+    $pos = [array]::IndexOf($hd1, '전자세금계산서 금액') + 1; if ($pos -lt 1) { throw "'전자세금계산서 금액' 열이 없음" }
+    for ($k = $chkCols.Count - 1; $k -ge 0; $k--) { $ws.Columns($pos).Insert() | Out-Null; $ws.Cells(1, $pos).Value2 = [string]$chkCols[$k] }
+    "열 추가: 체크 칸 $($chkCols -join ', ') (전자세금계산서 금액 앞)"
+  }
   $nc = $ws.UsedRange.Columns.Count; $hdr = $ws.Range($ws.Cells(1,1), $ws.Cells(1,$nc)).Value2
   $C = @{}; for ($j = 1; $j -le $nc; $j++) { $h = "$($hdr[1,$j])".Trim(); if ($h -and -not $C.ContainsKey($h)) { $C[$h] = $j } }
   foreach ($h in '출고일','BL날짜','인보이스 번호','환율','기초자료환율','달러','기초자료달러','수출면장 번호','구분','고객사','금액','출고Lot','출고수량') { if (-not $C[$h]) { throw "mes9월에 '$h' 열이 없음" } }
   $last = $ws.UsedRange.Row + $ws.UsedRange.Rows.Count - 1
   if ("$($ws.Cells($last,1).Value2)".Trim() -eq 'TOTAL') { $tot = $last; $last-- } else { $tot = $null }
   $cTaxA = $C['전자세금계산서 금액']; $cTaxN = $C['세금계산서 일련번호']   # 매번 새로 채움
+  foreach ($h0 in $chkCols) {   # 체크 칸: 빈칸만 ☐로 채우고, 누르면 ☐/☑ 고르게 (이미 ☑인 것은 그대로)
+    $cc = $C[$h0]; if (-not $cc) { continue }
+    $rg = $ws.Range($ws.Cells(2,$cc), $ws.Cells($last,$cc))
+    try { $rg.Validation.Delete() } catch {}; $rg.Validation.Add(3, 1, 1, "☑,☐") | Out-Null; $rg.Validation.InCellDropdown = $true
+    $rg.HorizontalAlignment = -4108; $ws.Columns($cc).ColumnWidth = 6; $ws.Cells(1,$cc).HorizontalAlignment = -4108
+    $cv = $rg.Value2; for ($r0 = 1; $r0 -le ($last - 1); $r0++) { if (-not "$($cv[$r0,1])".Trim()) { $ws.Cells($r0 + 1, $cc).Value2 = '☐' } }
+  }
   foreach ($cc in $cTaxA, $cTaxN) { $ws.Range($ws.Cells(2,$cc), $ws.Cells($last,$cc)).ClearContents() | Out-Null }
   $ws.Range($ws.Cells(2,$cTaxA), $ws.Cells($last + 1,$cTaxA)).NumberFormat = "#,##0"
   $ws.Columns($cTaxN).ColumnWidth = 27; $ws.Columns($cTaxN).WrapText = $true   # 일련번호(24자리)는 여러 개면 한 줄에 하나씩

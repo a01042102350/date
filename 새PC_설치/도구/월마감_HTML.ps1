@@ -63,6 +63,7 @@ $xl = New-Object -ComObject Excel.Application; $xl.Visible = $false; $xl.Display
 # 종류별 보기 체크박스: 줄 내용으로 종류를 붙임 (불량대체·이월 등)
 $tagDefs = @(@('이월', '이월'), @('불량대체', '불량대체'), @('반품·불량', '반품·불량|반품'), @('단가 소급', '소급'), @('전월 출하', '전월 출하'), @('수정세금계산서', '수정세금계산서'), @('출하기준 금액변동', '출하기준 금액변동'))
 $tagOrder = @('에러', '빨간 칸', '알림', '참고') + @($tagDefs | % { $_[0] }); $tagCnt = @{}
+$chkCols = @('불량', '이월', '반품', '관세', '툴링비')   # mes 시트 체크 칸 (엑셀 ☐/☑ → HTML 체크박스)
 $tables = @{}; $counts = @{}; $stats = @{}; $notes = @{}   # $notes: 표가 아니라 설명으로 보여 줄 [결과]·[안내] 줄
 try {
   $wb = $xl.Workbooks.Open($XlsPath, 0, $true)
@@ -76,9 +77,8 @@ try {
     $redIdx = if ($s.RedCols -eq '*') { 1..$nc } elseif ($s.RedCols) { @(for ($j = 1; $j -le $nc; $j++) { if ($s.RedCols -contains $hd[$j-1]) { $j } }) } else { @() }
     $t = New-Object System.Text.StringBuilder; $need = 0
     [void]$t.Append("<table id=`"t-$($s.Key)`"><thead><tr>")
-    if ($s.Key -eq 'err') { [void]$t.Append("<th scope=`"col`">해결</th>") } else { [void]$t.Append("<th scope=`"col`">확인</th>") }
-    [void]$t.Append("<th scope=`"col`">#</th>")
-    foreach ($h in $hd) { $lab = if ($unit[$h]) { "$h ($($unit[$h]))" } else { $h }; [void]$t.Append("<th scope=`"col`">$(HE $lab)</th>") }
+    if ($s.Key -eq 'err') { [void]$t.Append("<th scope=`"col`">해결</th>") }
+   foreach ($h in $hd) { $lab = if ($unit[$h]) { "$h ($($unit[$h]))" } else { $h }; [void]$t.Append("<th scope=`"col`">$(HE $lab)</th>") }
     [void]$t.Append("</tr></thead><tbody>")
     $skipN = 0; $tagCnt[$s.Key] = @{}
     for ($i = 2; $i -le $last; $i++) {
@@ -96,12 +96,13 @@ try {
       if ($s.Key -eq 'err') {
         $rid = "$($v[$i,2])|$($v[$i,4])|$($v[$i,5])"   # 인보이스/Lot|항목|MES 행 → 삭제 기억용 키
         $trA += ' data-id="' + (HE $rid) + '"'
-        [void]$t.Append("<tr$trA><td class=`"c`"><input type=`"checkbox`" class=`"done`" aria-label=`"해결`"></td><td class=`"rn`">$i</td>")
-      } else { $okId = "$($s.Key)|$i|$("$($v[$i,1])".Trim())"; [void]$t.Append("<tr$trA data-ok=`"$(HE $okId)`"><td class=`"c`"><input type=`"checkbox`" class=`"ok`" aria-label=`"확인`"></td><td class=`"rn`">$i</td>") }
+        [void]$t.Append("<tr$trA><td class=`"c`"><input type=`"checkbox`" class=`"done`" aria-label=`"해결`"></td>")
+      } else { [void]$t.Append("<tr$trA>") }
       for ($j = 1; $j -le $nc; $j++) {
         $hn = $hd[$j-1]; $c = Fmt $v[$i,$j] $isDate[$j-1] $hn
         $cc = @(); if ($red[$j]) { $cc += 'st-bad' }; if ($unit[$hn] -and $c -match '^-?[\d,]+(\.\d+)?$') { $cc += 'num' }; if ($hn -eq '세금계산서 일련번호') { $cc += 'ser' } elseif ($memoCols -contains $hn) { $cc += 'memo' } elseif ($centerCols -contains $hn) { $cc += 'c' }
         if ($s.Key -eq 'err' -and $j -eq 1 -and $c -eq '에러') { $cc += 'st-bad' }
+        if ($s.Key -eq 'mes' -and $chkCols -contains $hn) { $mkId = "$($v[$i,1])|$hn"; [void]$t.Append("<td class=`"c`"><input type=`"checkbox`" class=`"mk`" data-k=`"$(HE $mkId)`" aria-label=`"$hn`"$(if ($c -eq '☑') { ' checked' })></td>"); continue }   # 사람이 직접 체크하는 칸
         $tdA = if ($cc) { ' class="' + ($cc -join ' ') + '"' } else { '' }
         [void]$t.Append("<td$tdA>$(HE $c)</td>")
       }
@@ -142,7 +143,7 @@ td.st-bad{color:var(--bad);background:var(--badbg);font-weight:600}
 td.memo{white-space:normal;min-width:140px;max-width:260px;font-size:12px;line-height:1.4;word-break:keep-all;overflow-wrap:anywhere}
 #readme table td:first-child{font-weight:600;white-space:nowrap}#readme table td:last-child{white-space:normal;min-width:320px}
 section[hidden]{display:none}td.ser{white-space:pre-line;font-size:12px;font-variant-numeric:tabular-nums;text-align:center;min-width:200px}.upload{background:var(--tint);border-radius:10px;padding:12px 14px;margin:12px 0}.upload p{margin:0 0 8px}a.btn{display:inline-block;padding:7px 14px;border-radius:8px;background:var(--head);color:var(--headfg);text-decoration:none;margin:4px 8px 0 0;font-weight:600}a.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line);font-weight:400}p.note{background:var(--tint);border-radius:8px;padding:8px 12px;margin:6px 0}
-.tagbar{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:6px 10px;background:var(--tint);border-radius:8px}.tagbar label{white-space:nowrap;cursor:pointer}.tagn{color:var(--muted);font-size:12px}.taghint{color:var(--muted);font-size:12px}tbody tr.okd td{background:var(--carry);color:var(--muted)}tbody tr.okd td.st-bad{background:var(--carry)}input.ok{width:16px;height:16px;cursor:pointer}.okcnt{color:var(--muted);font-size:12px}tbody tr.checked td{text-decoration:line-through;color:var(--muted)}tbody tr.checked td.st-bad{background:transparent}
+.tagbar{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:6px 10px;background:var(--tint);border-radius:8px}.tagbar label{white-space:nowrap;cursor:pointer}.tagn{color:var(--muted);font-size:12px}.taghint{color:var(--muted);font-size:12px}tbody tr.okd td{background:var(--carry);color:var(--muted)}tbody tr.okd td.st-bad{background:var(--carry)}input.ok,input.mk{width:16px;height:16px;cursor:pointer}.okcnt{color:var(--muted);font-size:12px}tbody tr.checked td{text-decoration:line-through;color:var(--muted)}tbody tr.checked td.st-bad{background:transparent}
 input.done{width:16px;height:16px;cursor:pointer}.gonecnt{color:var(--muted);font-size:12px}
 button.del{background:var(--bad);color:#fff;border-color:var(--bad)}button:disabled{opacity:.5;cursor:default}
 @media print{nav.tabs,.tools{display:none}section[hidden]{display:block}.wrap{max-height:none;overflow:visible}}
@@ -160,6 +161,9 @@ const OKEY='checked_ok';let okSet={};try{okSet=JSON.parse(localStorage.getItem(O
 function saveOk(){try{localStorage.setItem(OKEY,JSON.stringify(okSet))}catch(e){}}
 document.querySelectorAll('tr[data-ok]').forEach(r=>{const cb=r.querySelector('input.ok');if(okSet[r.dataset.ok]){cb.checked=true;r.classList.add('okd')}
   cb.addEventListener('change',()=>{r.classList.toggle('okd',cb.checked);if(cb.checked)okSet[r.dataset.ok]=1;else delete okSet[r.dataset.ok];saveOk();applies.forEach(f=>f())})});
+// MES 탭 체크 칸(불량·이월·반품·관세·툴링비): 누르면 이 브라우저에 기억 (엑셀 파일에는 저장되지 않음)
+const MKEY='mes_checks';let mk={};try{mk=JSON.parse(localStorage.getItem(MKEY)||'{}')}catch(e){mk={}}
+document.querySelectorAll('input.mk').forEach(cb=>{const k=cb.dataset.k;if(k in mk)cb.checked=!!mk[k];cb.addEventListener('change',()=>{mk[k]=cb.checked?1:0;try{localStorage.setItem(MKEY,JSON.stringify(mk))}catch(e){}})});
 const applies=[];
 document.querySelectorAll('.tools').forEach(tool=>{
   const tb=document.getElementById(tool.dataset.table),q=tool.querySelector('input[type=search]'),only=tool.querySelector('input.only'),out=tool.querySelector('.count'),hideok=tool.querySelector('input.hideok'),okc=tool.querySelector('.okcnt'),tagfs=[...tool.querySelectorAll('input.tagf')];
@@ -204,7 +208,7 @@ foreach ($s in $sheets) {
   $okBox = if ($s.Key -ne 'err') { '<label><input type="checkbox" class="hideok"> 확인한 줄 숨기기</label><span class="okcnt"></span>' } else { '' }
   $onlyBox = if ($s.Key -in 'carry', 'ship') { '' } else { "<label><input type=`"checkbox`" class=`"only`"> $lbl</label>" }
   $errBtns = if ($s.Key -eq 'err') { "<button type=`"button`" id=`"del-done`" class=`"del`">체크한 항목 삭제(해결)</button><button type=`"button`" id=`"restore`">삭제한 항목 되살리기</button><span id=`"gonecnt`" class=`"gonecnt`"></span>" } else { '' }
-  [void]$h.Append("<section class=`"sheet`" id=`"s-$($s.Key)`"><h2>$(HE $s.Title)</h2><p class=`"sub`">$(HE $s.Desc)</p>$(($notes[$s.Key] | % { ""<p class=`""note`""><b>$(HE $_)</b></p>"" }) -join '')<div class=`"tools`" data-table=`"t-$($s.Key)`"><input type=`"search`" placeholder=`"검색 (예: DSM2609-SK03, 신코, 에러)`" aria-label=`"$(HE $s.Title) 검색`">$onlyBox$errBtns$okBox<span class=`"count`"></span>$tagBox</div><div class=`"wrap`">$($tables[$s.Key])</div></section>")
+  [void]$h.Append("<section class=`"sheet`" id=`"s-$($s.Key)`"><h2>$(HE $s.Title)</h2><p class=`"sub`">$(HE $s.Desc)</p>$(($notes[$s.Key] | % { ""<p class=`""note`""><b>$(HE $_)</b></p>"" }) -join '')<div class=`"tools`" data-table=`"t-$($s.Key)`"><input type=`"search`" placeholder=`"검색 (예: DSM2609-SK03, 신코, 에러)`" aria-label=`"$(HE $s.Title) 검색`">$onlyBox$errBtns<span class=`"count`"></span>$tagBox</div><div class=`"wrap`">$($tables[$s.Key])</div></section>")
 }
 [void]$h.Append("</main><script>$js</script></body></html>")
 [IO.File]::WriteAllText($Out, $h.ToString(), (New-Object Text.UTF8Encoding $false))
