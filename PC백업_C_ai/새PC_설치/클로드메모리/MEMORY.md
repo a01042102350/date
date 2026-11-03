@@ -1,0 +1,5 @@
+﻿- [Monthly close focus](monthly-close-focus.md) — 수출 마감: current month only, mention prior-month items, always report errors
+- [Reply in Korean](reply-in-korean.md) — 모든 답변·진행 메시지는 한국어로만
+- [Close workflow](close-workflow.md) — 사용자가 채팅으로 지시 → 이 PC에서 C:\ai\도구 스크립트로 반영 → GitHub push
+- [Plain error text](plain-error-text.md) — 결과물 사유 문구는 누구나 아는 쉬운 말, 줄임말·셀 주소 금지
+- [Export close files](export-close-files.md) — 회계 2026년 수출 = user's file & 기준; 해외=9월라인, 국내=출하일, 신코·코마츠=PDF; PDFs get month prefix
