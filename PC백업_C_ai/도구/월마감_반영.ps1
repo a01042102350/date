@@ -160,7 +160,9 @@ try {
   $cMemo = ColOf '메모'; $cEnd = $ws.UsedRange.Column + $ws.UsedRange.Columns.Count - 1   # 메모는 맨 끝 열 (사용자 요청 2026-10-31)
   if ($cMemo -and $cMemo -ne $cEnd) { $ws.Columns($cMemo).Cut() | Out-Null; $ws.Columns($cEnd + 1).Insert() | Out-Null; "열 이동: 메모 → 맨 끝" }
   if (PutBefore $chkCols '수출면장 번호') { "열 이동: 체크 칸 → 인보이스 번호 뒤" }
-  if (PutBefore @('담당자', '출고Lot') '구분') { "열 이동: 담당자·출고Lot → 구분 앞" }   # 사용자 요청 2026-10-31
+  if (PutBefore @('담당자') '구분') { "열 이동: 담당자 → 구분 앞" }   # 사용자 요청 2026-10-31
+  # 출고Lot·체크 칸·BL날짜·인보이스 번호·수출면장 번호 → 금액 뒤(전자세금계산서 금액 앞) (사용자 요청 2026-11-02, 출고Lot은 맨 앞·BL날짜·인보이스는 체크 칸 뒤 2026-11-03)
+  if (PutBefore (@('출고Lot') + $chkCols + @('BL날짜', '인보이스 번호', '수출면장 번호')) '전자세금계산서 금액') { "열 이동: 출고Lot·체크 칸·BL날짜·인보이스 번호·수출면장 번호 → 전자세금계산서 금액 앞" }
   if ($totMerged) { $q0 = (ColOf '출고수량') - 1; if ($q0 -ge 2) { $m0 = $ws.Range($ws.Cells($trw,1), $ws.Cells($trw,$q0)); $m0.Merge() | Out-Null; $m0.HorizontalAlignment = -4108 } }
   # 줄 정렬 (사용자 요청 2026-10-31): 국내 위 · 해외 아래, 각각 품번 순 → 출고일 순. NO는 MES 원래 번호 그대로(체크 기록 기준)
   #   줄 위치가 바뀌면 오류원본의 'MES 행' 번호도 새 위치로 바꿈. 국내/해외 사이 굵은 선
