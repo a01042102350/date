@@ -7,6 +7,15 @@ $orig = Join-Path $dir '2026년 수출 (2026.10).xlsx'
 $newF = Join-Path $dir '2026년 수출 (2026.10)_10월반영.xlsx'
 New-Item -ItemType Directory -Force "$dir\백업" | Out-Null
 Copy-Item $orig "$dir\백업\2026년 수출 (2026.10)_원본_$(Get-Date -f yyyyMMdd_HHmmss).xlsx"
+$KEEP = @{}
+if (Test-Path $newF) {
+  Copy-Item $newF "$dir\백업\2026년 수출 (2026.10)_10월반영_다시만들기전_$(Get-Date -f yyyyMMdd_HHmmss).xlsx"
+  $kx = New-Object -ComObject Excel.Application; $kx.DisplayAlerts = $false
+  try { $kb = $kx.Workbooks.Open($newF, 0, $true); $ks = $kb.Worksheets.Item('26.10(NEW)')
+    for ($q = 30; $q -le 300; $q++) { if ($ks.Cells($q,1).Text -like '총*계*') { break }; $ki = "$($ks.Cells($q,3).Value2)".Trim(); if (-not $ki) { continue }
+      $KEEP[$ki] = @{ 면장 = $ks.Cells($q,4).Value2; 유니패스 = $ks.Cells($q,5).Value2; 메모 = $ks.Cells($q,13).Value2 } }
+    $kb.Close($false) } finally { $kx.Quit() }
+  "기존 파일에서 읽어 둔 줄: $($KEEP.Count) (유니패스 입력 $(@($KEEP.Values | ? { $_.유니패스 }).Count)건)" }
 Copy-Item $orig $newF -Force
 $LB = Import-Csv "$sp\c_B.csv" -Encoding UTF8 | ? { $_.인보이스 -and $_.인보이스 -notmatch '매출마감일' }
 $SA = Import-Csv "$sp\c_A.csv" -Encoding UTF8
@@ -82,6 +91,7 @@ try {
     if ($x.거래처 -eq 'ATLAS KOREA' -or $x.값고정) { SetV $ws.Cells($r,9) ($x.원화) } else { $ws.Cells($r,9).Formula = "=ROUNDDOWN(H$r*G$r,0)" }
     if ($x.종류 -eq '이월') { $ws.Cells($r,11).Formula = "=I$r" } else { $ws.Cells($r,10).Formula = "=I$r" }
     # HS코드는 기초자료에 없어 넣지 않음
+    $kv = $KEEP[$x.인보이스]; if ($kv) { if ($kv.유니패스) { SetV $ws.Cells($r,5) ($kv.유니패스) }; if ($kv.메모) { SetV $ws.Cells($r,13) ($kv.메모) }; if ($kv.면장 -and -not $x.면장) { SetV $ws.Cells($r,4) ($kv.면장) } }
     $x | Add-Member 행 $r -Force; $r++ }
   $tot = $r
   $lastCol = 11; for ($cc = 11; $cc -le 13; $cc++) { if ($src.Cells(94, $cc).Borders(9).Weight -eq -4138) { $lastCol = $cc } }
