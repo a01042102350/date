@@ -15,17 +15,17 @@ $RT = @{}; Import-Csv "$sp\c_FX.csv" -Encoding UTF8 | ? 환율 | % { $RT[$_.날�
 $prevInv = @{}; foreach ($p in $P9) { $prevInv[$p.인보이스] = $p }
 
 function CustOf($x) { $i = $x.인보이스
-  if ($x.거래처 -eq '툴링비') { if ($i -match 'ME01') { return 'MEPPI' } elseif ($i -match '관세') { return 'ALLISON' } else { return 'MERCURY U' } }
+  if ($x.거래처 -like '툴링비*' -or $x.거래처 -like '*관세*') { if ($i -match 'ME01') { return 'MEPPI' } elseif ($i -match '관세') { return 'ALLISON' } else { return 'MERCURY U' } }
   switch -regex ($x.거래처) { '^DOMETIC' { 'DOMETIC' } '(?i)^POLARIS' { 'POLARIS' } 'MERCURY CHINA' { 'MERCURY C'; break } '^MERCURY' { 'MERCURY U' } '^BERGEN' { 'BERGEN ENG' }
     '^ALLISON' { 'ALLISON' } '^SAM' { 'SAM' } '^EMERSON' { 'EMERSON' } 'AMAT' { 'AMAT' } '^ATLAS' { 'ATLAS KOREA' } default { "?$($x.거래처)" } } }
 
 # ── 10월 줄 목록 ──
 $rows = New-Object Collections.Generic.List[object]
 foreach ($x in $LB) { $c = CustOf $x
-  $kind = if ($x.구분 -eq '이월') { '이월' } elseif ($x.인보이스 -match '관세') { '관세' } elseif ($x.거래처 -eq '툴링비') { '툴링' } elseif ($prevInv.ContainsKey($x.인보이스)) { '전월' } else { '당월' }
+  $kind = if ($x.구분 -eq '이월') { '이월' } elseif ($x.인보이스 -match '관세') { '관세' } elseif ($x.거래처 -like '툴링비*') { '툴링' } elseif ($prevInv.ContainsKey($x.인보이스)) { '전월' } else { '당월' }
   $inv = $x.인보이스; if ($kind -eq '툴링' -and $inv -notmatch '툴링') { $inv = "$inv(툴링비)" }
   $dno = if ($kind -eq '관세') { '관세' } elseif ($x.면장) { $x.면장 } elseif ($c -eq 'ATLAS KOREA') { '전자세금계산서' } else { '툴링비' }
-  $rows.Add([pscustomobject]@{ 거래처 = $c; 종류 = $kind; 인보이스 = $inv; 원인보이스 = $x.인보이스; 면장 = $dno; BL = $x.BL; 환율 = $x.환율; 외화 = [double]$x.외화; 원화 = [double]$x.원화; 값고정 = $false; 구월 = $false; 빈줄 = $false }) }
+  $rows.Add([pscustomobject]@{ 거래처 = $c; 종류 = $kind; 인보이스 = $inv; 원인보이스 = $x.인보이스; 면장 = $dno; BL = $x.BL; 환율 = $x.환율; 외화 = [double]$x.외화; 원화 = [double]$x.원화; 값고정 = ($c -eq 'BERGEN ENG'); 구월 = $false; 빈줄 = $false }) }
 # 상세에만 있는 8월 오기재 관세 차액분 (관세 맨 앞)
 $cor = $SA | ? { $_.인보이스 -like '*오기재*' } | Select -First 1
 if ($false -and $cor) { $rows.Add([pscustomobject]@{ 거래처 = 'ALLISON'; 종류 = '관세'; 인보이스 = '8월 오기재 관세 차액분(DSM2608-AL05 관세)'; 원인보이스 = $cor.인보이스; 면장 = '관세'; BL = $cor.BL; 환율 = $cor.환율; 외화 = [double]$cor.외화; 원화 = [double]$cor.원화; 값고정 = $true; 구월 = $false; 빈줄 = $false; 앞 = $true }) }
@@ -76,7 +76,7 @@ try {
       SetV $ws.Cells($r,3) ($x.인보이스); SetV $ws.Cells($r,4) ($x.면장)
       if ($x.구월) { for ($q = 31; $q -le 132; $q++) { if ("$($src.Cells($q,3).Value2)".Trim() -eq $x.인보이스) { $src.Range("E$($q):H$q").Copy() | Out-Null; $ws.Range("E$r").PasteSpecial(-4163) | Out-Null } } }
       else { SetV $ws.Cells($r,6) ([DateTime]::Parse($x.BL).ToOADate())
-        if ($x.거래처 -eq 'BERGEN ENG') { SetV $ws.Cells($r,7) (1350); $x.외화 = $x.원화 / 1350 }
+        if ($false) { }
         elseif ($x.엔화) { SetV $ws.Cells($r,7) ($x.환율) } elseif ($x.거래처 -ne 'ATLAS KOREA') { $ws.Cells($r,7).Formula = "=VLOOKUP(F$r,환율!A:B,2,0)" }
         SetV $ws.Cells($r,8) ($x.외화) } }
     if ($x.거래처 -eq 'ATLAS KOREA' -or $x.값고정) { SetV $ws.Cells($r,9) ($x.원화) } else { $ws.Cells($r,9).Formula = "=ROUNDDOWN(H$r*G$r,0)" }

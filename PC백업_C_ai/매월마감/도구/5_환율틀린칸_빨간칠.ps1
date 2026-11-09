@@ -20,7 +20,7 @@ try {
   $wb = $xl.Workbooks.Open($fB)
   foreach ($sn in '26.10月당월_면장', '26.10月이월_면장') { $s = $wb.Worksheets.Item($sn); $v = $s.Range('A1:H100').Value2; $cu = ''
     for ($r = 1; $r -le 100; $r++) { if ("$($v[$r,1])" -match '합\s*계') { break }; if ("$($v[$r,1])".Trim()) { $cu = ("$($v[$r,1])" -replace '\s+', ' ').Trim() }
-      $inv = "$($v[$r,3])".Trim(); $bl = D $v[$r,5]; $g = $v[$r,6]; if (-not $inv -or -not $bl -or $null -eq $g -or $cu -like 'BERGEN*') { continue }
+      $inv = "$($v[$r,3])".Trim(); $bl = D $v[$r,5]; $g = $v[$r,6]; if (-not $inv -or -not $bl -or $null -eq $g) { continue }
       if (-not $rate[$bl]) { $res += [pscustomobject]@{ 파일 = '범위 밖'; 시트 = "$r"; 행 = $r; 인보이스 = $inv; BL = $bl; 적힌환율 = $g; 서울외국환중개 = $null; 맞음 = $true }; continue }; $want = $rate[$bl].환율; $res += [pscustomobject]@{ 파일 = '라인별 매출'; 시트 = $sn; 행 = $r; 인보이스 = $inv; BL = $bl; 적힌환율 = [double]$g; 서울외국환중개 = $want; 맞음 = ([Math]::Abs([double]$g - $want) -lt 0.001) }
       if ([Math]::Abs([double]$g - $want) -ge 0.001) { $s.Cells($r, 6).Interior.Color = $RED } } }
   $wb.Save(); $wb.Close($false)
@@ -38,7 +38,7 @@ try {
   # ③ 작업 파일 10월 시트 (BL일자 F, 환율 G) — 칠하기만, 값은 안 바꿈
   $wb = $xl.Workbooks.Open($fW); $s = $wb.Worksheets.Item('26.10(NEW)')
   for ($r = 32; $r -le 140; $r++) { $a = $s.Cells($r,1).Text; if ($a -like '총*계*') { break }; $bl = D $s.Cells($r,6).Value2; $g = $s.Cells($r,7).Value2
-    if (-not $bl -or -not ($g -is [double]) -or $a -like 'BERGEN*' -or $a -like 'SHINKO*' -or $a -like 'JS TECH*') { continue }
+    if (-not $bl -or -not ($g -is [double]) -or $a -like 'SHINKO*' -or $a -like 'JS TECH*') { continue }
     if (-not $rate[$bl]) { $res += [pscustomobject]@{ 파일 = '범위 밖'; 시트 = "$r"; 행 = $r; 인보이스 = $inv; BL = $bl; 적힌환율 = $g; 서울외국환중개 = $null; 맞음 = $true }; continue }; $want = $rate[$bl].환율; $ok = [Math]::Abs($g - $want) -lt 0.001
     $res += [pscustomobject]@{ 파일 = '10월반영(작업 파일)'; 시트 = '26.10(NEW)'; 행 = $r; 인보이스 = $s.Cells($r,3).Text; BL = $bl; 적힌환율 = $g; 서울외국환중개 = $want; 맞음 = $ok }
     if (-not $ok) { $s.Cells($r, 7).Interior.Color = $RED } }
