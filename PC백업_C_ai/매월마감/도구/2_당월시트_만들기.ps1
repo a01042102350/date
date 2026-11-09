@@ -28,12 +28,16 @@ foreach ($x in $LB) { $c = CustOf $x
   $rows.Add([pscustomobject]@{ 거래처 = $c; 종류 = $kind; 인보이스 = $inv; 원인보이스 = $x.인보이스; 면장 = $dno; BL = $x.BL; 환율 = $x.환율; 외화 = [double]$x.외화; 원화 = [double]$x.원화; 값고정 = $false; 구월 = $false; 빈줄 = $false }) }
 # 상세에만 있는 8월 오기재 관세 차액분 (관세 맨 앞)
 $cor = $SA | ? { $_.인보이스 -like '*오기재*' } | Select -First 1
-if ($cor) { $rows.Add([pscustomobject]@{ 거래처 = 'ALLISON'; 종류 = '관세'; 인보이스 = '8월 오기재 관세 차액분(DSM2608-AL05 관세)'; 원인보이스 = $cor.인보이스; 면장 = '관세'; BL = $cor.BL; 환율 = $cor.환율; 외화 = [double]$cor.외화; 원화 = [double]$cor.원화; 값고정 = $true; 구월 = $false; 빈줄 = $false; 앞 = $true }) }
+if ($false -and $cor) { $rows.Add([pscustomobject]@{ 거래처 = 'ALLISON'; 종류 = '관세'; 인보이스 = '8월 오기재 관세 차액분(DSM2608-AL05 관세)'; 원인보이스 = $cor.인보이스; 면장 = '관세'; BL = $cor.BL; 환율 = $cor.환율; 외화 = [double]$cor.외화; 원화 = [double]$cor.원화; 값고정 = $true; 구월 = $false; 빈줄 = $false; 앞 = $true }) }
 # 9월 이월 중 해외 자료에 없는 것(코마츠 JS03) → 전월이월
-foreach ($p in $P9) { if (-not ($rows | ? 원인보이스 -eq $p.인보이스)) { $rows.Add([pscustomobject]@{ 거래처 = $p.거래처; 종류 = '전월'; 인보이스 = $p.인보이스; 원인보이스 = $p.인보이스; 면장 = $p.면장; BL = '9월 시트'; 환율 = $null; 외화 = [double]$p.외화; 원화 = [double]$p.원화; 값고정 = $false; 구월 = $true; 빈줄 = $false }) } }
+foreach ($p in $P9) { if ($false -and -not ($rows | ? 원인보이스 -eq $p.인보이스)) { $rows.Add([pscustomobject]@{ 거래처 = $p.거래처; 종류 = '전월'; 인보이스 = $p.인보이스; 원인보이스 = $p.인보이스; 면장 = $p.면장; BL = '9월 시트'; 환율 = $null; 외화 = [double]$p.외화; 원화 = [double]$p.원화; 값고정 = $false; 구월 = $true; 빈줄 = $false }) } }
 # 빈 줄(신코·코마츠 10월분 직접 입력용)
-foreach ($nm in 'SHINKO', 'JS TECH(코마츠)') { $rows.Add([pscustomobject]@{ 거래처 = $nm; 종류 = '당월'; 인보이스 = ''; 원인보이스 = ''; 면장 = ''; BL = ''; 환율 = $null; 외화 = $null; 원화 = $null; 값고정 = $false; 구월 = $false; 빈줄 = $true }) }
-
+# 신코·코마츠: 10월 매출내역서 시트(신코202610, 코마츠202610)만 — 엔화, 환율은 기초자료 값
+$JP = @(Import-Csv "$sp\c_JP.csv" -Encoding UTF8)
+foreach ($nm in 'SHINKO', 'JS TECH(코마츠)') { $g = @($JP | ? 고객 -eq $nm)
+  if ($g.Count -eq 0) { $rows.Add([pscustomobject]@{ 거래처 = $nm; 종류 = '당월'; 인보이스 = ''; 원인보이스 = ''; 면장 = ''; BL = ''; 환율 = $null; 외화 = $null; 원화 = $null; 값고정 = $false; 구월 = $false; 빈줄 = $true }) }
+  foreach ($x in $g) { $kind = if ($x.인보이스 -match 'DSM(\d{4})' -and [int]$matches[1] -lt 2610) { '전월' } else { '당월' }
+    $rows.Add([pscustomobject]@{ 거래처 = $nm; 종류 = $kind; 인보이스 = $x.인보이스; 원인보이스 = $x.인보이스; 면장 = ''; BL = $x.BL; 환율 = [double]$x.환율; 외화 = [double]$x.엔화; 원화 = [double]$x.원화; 값고정 = $false; 구월 = $false; 빈줄 = $false; 엔화 = $true }) } }
 $xl = New-Object -ComObject Excel.Application; $xl.DisplayAlerts = $false; $xl.ScreenUpdating = $false
 try {
   $wb = $xl.Workbooks.Open($newF)
@@ -73,13 +77,18 @@ try {
       if ($x.구월) { for ($q = 31; $q -le 132; $q++) { if ("$($src.Cells($q,3).Value2)".Trim() -eq $x.인보이스) { $src.Range("E$($q):H$q").Copy() | Out-Null; $ws.Range("E$r").PasteSpecial(-4163) | Out-Null } } }
       else { SetV $ws.Cells($r,6) ([DateTime]::Parse($x.BL).ToOADate())
         if ($x.거래처 -eq 'BERGEN ENG') { SetV $ws.Cells($r,7) (1350); $x.외화 = $x.원화 / 1350 }
-        elseif ($x.거래처 -ne 'ATLAS KOREA') { $ws.Cells($r,7).Formula = "=VLOOKUP(F$r,환율!A:B,2,0)" }
+        elseif ($x.엔화) { SetV $ws.Cells($r,7) ($x.환율) } elseif ($x.거래처 -ne 'ATLAS KOREA') { $ws.Cells($r,7).Formula = "=VLOOKUP(F$r,환율!A:B,2,0)" }
         SetV $ws.Cells($r,8) ($x.외화) } }
     if ($x.거래처 -eq 'ATLAS KOREA' -or $x.값고정) { SetV $ws.Cells($r,9) ($x.원화) } else { $ws.Cells($r,9).Formula = "=ROUNDDOWN(H$r*G$r,0)" }
     if ($x.종류 -eq '이월') { $ws.Cells($r,11).Formula = "=I$r" } else { $ws.Cells($r,10).Formula = "=I$r" }
-    if ($hs[$x.거래처]) { SetV $ws.Cells($r,13) ($hs[$x.거래처]) }
+    # HS코드는 기초자료에 없어 넣지 않음
     $x | Add-Member 행 $r -Force; $r++ }
   $tot = $r
+  $lastCol = 11; for ($cc = 11; $cc -le 13; $cc++) { if ($src.Cells(94, $cc).Borders(9).Weight -eq -4138) { $lastCol = $cc } }
+  $ws.Range($ws.Cells($d0, 1), $ws.Cells($tot - 1, $lastCol)).Borders(12).Weight = 2
+  $ws.Range($ws.Cells($d0, 1), $ws.Cells($tot - 1, $lastCol)).Borders(12).LineStyle = 1
+  for ($q = $d0; $q -lt $tot; $q++) { $bb = $ws.Range($ws.Cells($q, 1), $ws.Cells($q, $lastCol)).Borders(9); $bb.LineStyle = 1
+    if ("$($ws.Cells($q,1).Value2)".Trim() -ne "$($ws.Cells($q + 1,1).Value2)".Trim()) { $bb.Weight = -4138 } else { $bb.Weight = 2 } }
   foreach ($cc in 'I','J','K') { $ws.Range("$cc$tot").Formula = "=SUM($cc$($d0):$cc$($tot-1))" }
   $firstOv = ($sorted | ? { $_.거래처 -ne 'SHINKO' -and $_.거래처 -ne 'JS TECH(코마츠)' } | Select -First 1).행
   $ws.Cells($tot + 1, 10).Formula = "=SUM(I$($firstOv):I$($tot-1))-K$tot"
@@ -95,7 +104,7 @@ try {
     if ($fD) { $ws.Cells($q,4).Formula = "=$fD" } else { SetV $ws.Cells($q,4) (0) }
     if ($fE) { $ws.Cells($q,5).Formula = "=$fE" } else { SetV $ws.Cells($q,5) (0) }
     if ($fH) { $ws.Cells($q,8).Formula = "=$fH" } else { SetV $ws.Cells($q,8) (0) }
-    $ws.Cells($q,9).Formula = "=SUMIF(`$A`$$($d0):`$A`$$($tot),C$q,`$I`$$($d0):`$I`$$($tot))"
+    $crit = if ($key -eq 'ALLISON') { '"ALLISON"' } else { "C$q" }; $ws.Cells($q,9).Formula = "=SUMIF(`$A`$$($d0):`$A`$$($tot),$crit,`$I`$$($d0):`$I`$$($tot))"
     $ws.Cells($q,10).Formula = "=SUM(D$($q):G$q)" }
   # 공장별 합계(K): 같은 공장이 이어지는 구간 마지막 줄
   foreach ($cr in $custRows) { if ($cr.고객 -ne 'ATLAS KOREA') { $ws.Cells($cr.행, 11).ClearContents() | Out-Null } }

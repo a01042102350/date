@@ -2,7 +2,7 @@
 $dir = 'C:\ai\매월마감\202610'
 $fA = Get-ChildItem $dir -Filter '*인보이스별 상세*' | Select -Expand FullName
 $fB = Get-ChildItem $dir -Filter '*라인별 매출*' | Select -Expand FullName
-$fX = Get-ChildItem $dir -Filter '2026년 수출*' | Select -Expand FullName
+$fX = Join-Path $dir '2026년 수출 (2026.10).xlsx'
 $out = Split-Path $MyInvocation.MyCommand.Path
 function D($v) { if ($v -is [double] -and $v -gt 30000 -and $v -lt 60000) { [DateTime]::FromOADate($v).ToString('yyyy-MM-dd') } else { "$v" } }
 function N($v) { if ($null -eq $v -or "$v" -eq '') { $null } else { [double]$v } }
