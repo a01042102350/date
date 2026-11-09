@@ -34,7 +34,7 @@ $NOTE = New-Object Collections.Generic.List[object]
 function Note($lvl, $what, $amt, $text, $todo) { $NOTE.Add(@($lvl, $what, $amt, $text, $todo)) | Out-Null
   Log "  [$lvl] $what : $text" $(switch ($lvl) { '에러' { 'Red' } '알림' { 'Yellow' } default { 'DarkGray' } }) }
 $BAD = New-Object Collections.Generic.List[string]
-function Bad([string]$m) { $BAD.Add($m) | Out-Null; Log "  ✖ $m" 'Red' }
+function Bad([string]$m) { $BAD.Add($m) | Out-Null; Log "  ✖ [문제] $m" 'Red' }
 
 function SetV($cell, $v) { $a = New-Object 'object[,]' 1, 1; if ($null -ne $v) { $v = $v.psobject.BaseObject }; $a[0, 0] = $v; $cell.Value2 = $a }
 function Put($s, $r, $vals, $c0 = 1) { $a = New-Object 'object[,]' 1, $vals.Count
@@ -101,7 +101,7 @@ try {
       $kBL = @($col.Keys | ? { $_ -match 'bl날짜|발행일' })[0]; $cBL = if ($kBL) { $col[$kBL] } else { 0 }
       $cR = [int]$col['환율']; $cU = [int]$col['달러']; $cW = [int]$col['원화']; $cC = [int]$col['거래처']
       if (-not $cW) { continue }
-      for ($r = $hr + 1; $r -le 80; $r++) { $inv = ("$($v[$r,$ic])" -replace '\s+', ' ').Trim(); if (-not $inv) { continue }
+      for ($r = $hr + 1; $r -le 80; $r++) { $inv = ("$($v[$r,$ic])" -replace '\s+', ' ').Trim(); if (-not $inv -or $inv -notmatch '[A-Za-z가-힣]') { continue }
         $DET.Add([pscustomobject]@{ 시트 = $s.Name; 거래처 = $(if ($cC) { "$($v[$r,$cC])".Trim() } else { $s.Name }); 인보이스 = $inv; BL = $(if ($cBL) { D $v[$r, $cBL] }); 환율 = $(if ($cR) { N $v[$r, $cR] }); 외화 = $(if ($cU) { N $v[$r, $cU] }); 원화 = (N $v[$r, $cW]); 행 = $r; 환율열 = $(if ($cR) { 14 + $cR } else { 0 }) }) | Out-Null } }
     $wbA.Close($false)
     if ($DET.Count -eq 0) { Bad "인보이스별 상세 파일에서 '인보이스' 머리글이 있는 표를 찾지 못했습니다." } else { Log "  인보이스별 상세: $($DET.Count)줄 ($((@($DET | % 시트 | Select-Object -Unique)) -join ', '))" } }
@@ -166,7 +166,7 @@ try {
   if (Test-Path -LiteralPath $newF) {
     Copy-Item -LiteralPath $newF (Join-Path $bak "$([IO.Path]::GetFileNameWithoutExtension($newF))_다시만들기전_$ts.xlsx")
     $kb = $xl.Workbooks.Open($newF, 0, $true); $ks = SheetOf $kb $newSheet
-    if ($ks) { for ($q = 30; $q -le 600; $q++) { if ($ks.Cells($q, 1).Text -like '총*계*') { break }; $ki = "$($ks.Cells($q,3).Value2)".Trim(); if (-not $ki) { continue }
+    if ($ks) { $kh = FindRow $ks 1 '^◆' 5 80; for ($q = $kh + 3; $q -le 600; $q++) { if ($ks.Cells($q, 1).Text -like '총*계*') { break }; $ki = "$($ks.Cells($q,3).Value2)".Trim(); if (-not $ki) { continue }
         $KEEP[$ki] = @{ 면장 = $ks.Cells($q, 4).Value2; 유니패스 = $ks.Cells($q, 5).Value2; 메모 = $ks.Cells($q, 13).Value2 } } }
     $kb.Close($false)
     Log "  기존 결과 파일을 백업하고 사용자 입력을 읽었습니다: $($KEEP.Count)줄 (유니패스 $(@($KEEP.Values | ? { $_.유니패스 }).Count)건)" 'Yellow' }
