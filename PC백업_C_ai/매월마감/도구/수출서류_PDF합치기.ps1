@@ -4,7 +4,8 @@
 # PDF: C:\ai\매월마감\해외pdf 아래 모든 달 폴더에서 인보이스 이름으로 폴더/파일을 찾음 ((X)로 시작하는 폴더, 인쇄용_ 폴더 제외)
 # 순서: 수출 파일 줄 순서, 인보이스마다 면장 → 인보이스 → 패킹리스트 → BL
 #  - 인보이스·패킹이 한 파일이면 쪽마다 윈도우 글자 인식(OCR)으로 제목을 읽어 인보이스 쪽을 앞으로
-#  - 같은 인보이스 파일이 여러 버전이면 OCR로 금액을 읽어 수출 파일 외화 금액과 같은 버전을 고름(없으면 REV·정정·'-' 규칙)
+#  - 같은 인보이스 파일이 여러 버전이면 OCR로 금액을 읽어 수출 파일 외화 금액과 같은 버전을 고름(없으면 REV·정정·'-' 규칙, '확인할 것'에 남김)
+#    (파일이 하나뿐이면 금액은 확인 안 함 — 좁은 글꼴 숫자는 OCR이 자주 틀려서, 2026-11-10)
 # 결과: 해외pdf\인쇄용_YYYYMM\YYYYMM_해외_수출서류_인쇄용.pdf + …_인쇄순서.xlsx(인쇄 순서·빠진 서류·확인할 것)
 param([Parameter(Mandatory = $true)][string]$YM, [string]$ResultFile, [string]$PdfRoot = 'C:\ai\매월마감\해외pdf')
 $ErrorActionPreference = 'Stop'
@@ -124,7 +125,6 @@ try {
       else { $pick = @($ivc | Sort-Object @{ e = 's'; Descending = $true }, @{ e = { $_.f.LastWriteTime }; Descending = $true } | Select-Object -First 1); $how = '금액으로 못 가려 이름(REV·정정·-) 규칙'
         Chk $inv '버전' "인보이스 파일 $($ivc.Count)개 중 금액($('{0:N2}' -f $w.외화))이 맞는 파일을 못 찾아 '$($pick[0].f.Name)'을(를) 넣었습니다. 맞는지 확인해 주세요." }
       Log "  $inv : 인보이스 파일 $($ivc.Count)개 중 '$($pick[0].f.Name)' ($how), 안 씀: $((@($ivc | ? { $_ -ne $pick[0] }) | % { $_.f.Name }) -join ' / ')" }
-    if ($pick.Count -and $how -eq '파일 1개' -and $null -ne $w.외화) { if (-not (HasAmount $pick[0].f.FullName $w.외화)) { Chk $inv '금액' "인보이스 '$($pick[0].f.Name)'에서 수출 파일 금액 $('{0:N2}' -f $w.외화)을(를) 읽지 못했습니다(글자 인식 실패이거나 금액이 다름)." } }
     $lack = @(); if (-not $mj.Count) { $lack += '면장' }; if (-not $pick.Count) { $lack += '인보이스' }; if (-not $bl.Count) { $lack += 'BL' }
     if ($lack.Count) { $MISS.Add([pscustomobject]@{ 행 = $w.행; 구분 = $w.구분; 거래처 = $w.거래처; 인보이스 = $inv; 없는서류 = ($lack -join '·'); 폴더 = $(if ($dirs.Count) { $dirs[0].FullName.Replace($PdfRoot, '') } else { '폴더 없음' }) }) | Out-Null }
     # 쪽 단위 순서
