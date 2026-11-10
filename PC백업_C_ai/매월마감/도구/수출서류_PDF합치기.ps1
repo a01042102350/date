@@ -86,15 +86,11 @@ try {
       AwaitA ($page.RenderToStreamAsync($ms, $opt))
       $dec = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($ms)) ([Windows.Graphics.Imaging.BitmapDecoder])
       $bmp = Await ($dec.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-      $OCRC[$key] = ((Await ($ocr.RecognizeAsync($bmp)) ([Windows.Media.Ocr.OcrResult])).Text -replace '\s+', ' ').ToUpper() }
+      $res = Await ($ocr.RecognizeAsync($bmp)) ([Windows.Media.Ocr.OcrResult]); $OCRC[$key] = (((@($res.Lines) | ForEach-Object { $_.Text }) -join ' ') -replace '\s+', ' ').ToUpper() }   # .Text는 엑셀을 쓴 뒤 비어 나와서 줄마다 모음
     $OCRC[$key] }
   function PageKind($path, [int]$pg) { $t = OcrText $path $pg 0.3; if ($t -match 'PACKING') { '패킹' } elseif ($t -match 'INVOICE') { '인보이스' } else { '모름' } }
   function HasAmount($path, $amt) { if ($null -eq $amt) { return $null }; $want = ('{0:0.00}' -f $amt) -replace '\.', ''
     for ($pg = 0; $pg -lt (Pages $path); $pg++) { $d = ((OcrText $path $pg 1.0) -replace 'O', '0' -replace '[IL]', '1') -replace '[^0-9]', ''; if ($d.Contains($want)) { return $true } }; $false }
-  if ($env:OCRTEST) { $tp = 'C:\ai\매월마감\해외pdf\202610해외pdf\10월\Allison\DSM2610-AL06_22일(배)\DSM2610-AL06.pdf'; $tx = OcrText $tp 0 0.3
-    Log "OCR 시험: 글자 $($tx.Length), 종류 $(PageKind $tp 0)/$(PageKind $tp 1), 금액 $(HasAmount $tp 350088.68)"
-    $w = [pscustomobject]@{ 외화 = 350088.68 }; $fs = @(Get-Item -LiteralPath $tp); $cc = @($fs | % { [pscustomobject]@{ f = $_ } }); $hit = @($cc | ? { HasAmount $_.f.FullName $w.외화 }); Log "Where 안에서: $($hit.Count)"
-    throw '시험 끝' }
 
   # ───── ④ PDF 찾기·고르기 ─────
   Log '② PDF 찾아서 서류 종류 나누기' 'Cyan'
@@ -170,7 +166,7 @@ try {
   # ───── ⑥ 목록 엑셀 ─────
   function Fill($sh, $hdrs, $rows, $props) { $data = New-Object 'object[,]' ($rows.Count + 1), $hdrs.Count
     for ($c = 0; $c -lt $hdrs.Count; $c++) { $data[0, $c] = $hdrs[$c] }
-    for ($r = 0; $r -lt $rows.Count; $r++) { for ($c = 0; $c -lt $props.Count; $c++) { $v = $rows[$r].($props[$c]); if ($null -ne $v) { $v = $v.psobject.BaseObject }; $data[($r + 1), $c] = $v } }
+    for ($r = 0; $r -lt $rows.Count; $r++) { for ($c = 0; $c -lt $props.Count; $c++) { $v = $rows[$r].($props[$c]); if ($null -ne $v) { $v = $v.psobject.BaseObject; if ($v -is [int] -or $v -is [double] -or $v -is [long]) { $v = [double]$v } else { $v = [string]$v } }; $data[($r + 1), $c] = $v } }
     $sh.Range($sh.Cells(1, 1), $sh.Cells($rows.Count + 1, $hdrs.Count)).Value2 = $data
     $hr = $sh.Range($sh.Cells(1, 1), $sh.Cells(1, $hdrs.Count)); $hr.Font.Bold = $true; $hr.Interior.Color = 0xF2E6DD; $sh.Columns.AutoFit() | Out-Null }
   $wb2 = $xl.Workbooks.Add(); while ($wb2.Worksheets.Count -lt 3) { $wb2.Worksheets.Add([Type]::Missing, $wb2.Worksheets.Item($wb2.Worksheets.Count)) | Out-Null }
