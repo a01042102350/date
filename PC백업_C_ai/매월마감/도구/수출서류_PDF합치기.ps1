@@ -175,9 +175,9 @@ try {
   Fill $s1 @('구분', '거래처', '인보이스', '서류', '시작 쪽', '쪽수') $ord1 @('구분', '거래처', '인보이스', '서류', '시작쪽', '쪽수')
   $s1.Columns('D').ColumnWidth = 75; for ($r = 0; $r -lt $ord1.Count; $r++) { if ($ord1[$r].인보이스) { $s1.Range("A$($r + 2):F$($r + 2)").Borders(8).Weight = -4138 } }
   $s2 = $wb2.Worksheets.Item(2); $s2.Name = '빠진 서류'
-  if ($MISS.Count) { Fill $s2 @('구분', '거래처', '인보이스', '없는 서류', '찾아본 폴더') @($MISS) @('구분', '거래처', '인보이스', '없는서류', '폴더') } else { $s2.Range('A1').Value2 = '빠진 서류 없음' }
+  if ($MISS.Count) { Fill $s2 @('구분', '거래처', '인보이스', '없는 서류', '찾아본 폴더') @($MISS | ForEach-Object { $_ }) @('구분', '거래처', '인보이스', '없는서류', '폴더') } else { $s2.Range('A1').Value2 = '빠진 서류 없음' }
   $s3 = $wb2.Worksheets.Item(3); $s3.Name = '확인할 것'
-  if ($CHECK.Count) { Fill $s3 @('인보이스', '구분', '내용') @($CHECK) @('인보이스', '구분', '내용'); $s3.Columns('C').ColumnWidth = 110 } else { $s3.Range('A1').Value2 = '확인할 것 없음' }
+  if ($CHECK.Count) { Fill $s3 @('인보이스', '구분', '내용') @($CHECK | ForEach-Object { $_ }) @('인보이스', '구분', '내용'); $s3.Columns('C').ColumnWidth = 110 } else { $s3.Range('A1').Value2 = '확인할 것 없음' }
   $s1.Activate(); $wb2.SaveAs($outXls, 51); $wb2.Close($false)
   Log "  목록: $outXls" 'Green'
   $sum = @("PDF: $([IO.Path]::GetFileName($outPdf)) (총 $($got)쪽)", "대상 인보이스 $($TG.Count)건, 서류 $($PARTS.Count)개", "빠진 서류가 있는 인보이스: $($MISS.Count)건", "확인할 것: $($CHECK.Count)건")
