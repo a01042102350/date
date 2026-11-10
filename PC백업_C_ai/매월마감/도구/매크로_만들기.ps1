@@ -7,7 +7,9 @@ Private Const ROOT_DIR As String = "C:\ai\매월마감"
 Private Const PS_FILE As String = "C:\ai\매월마감\도구\수출마감_자동.ps1"
 Private Const PDF_PS As String = "C:\ai\매월마감\도구\수출서류_PDF합치기.ps1"
 Private Const PDF_ROOT As String = "C:\ai\매월마감\해외pdf"
-Private Const LOG_ROW As Long = 30
+Private Const VOUCHER_PS As String = "C:\ai\매월마감\도구\해외매출_자동전표.ps1"
+Private Const VOUCHER_ROOT As String = "C:\ai\매월마감\해외자동전표"
+Private Const LOG_ROW As Long = 34
 
 Private Function MonthText() As String
     MonthText = Trim(CStr(ThisWorkbook.Worksheets(1).Range("C4").Value))
@@ -61,6 +63,20 @@ Public Sub Run_Pdf()
     DoEvents
     Dim rc As Long: rc = CreateObject("WScript.Shell").Run("powershell.exe -NoProfile -ExecutionPolicy Bypass -File """ & PDF_PS & """ -YM " & ym, 1, True)
     ShowLog f, rc, 2
+End Sub
+
+Public Sub Run_Voucher()
+    Dim ym As String: ym = MonthText()
+    If Not CheckMonth(ym) Then Exit Sub
+    Dim f As String: f = MonthFolder(ym)
+    If Dir(f & "\*월반영.xlsx") = "" Then MsgBox "이 달 결과 파일이 없습니다. '③ 결과 만들기'를 먼저 눌러 주세요.", vbExclamation, "수출 마감": Exit Sub
+    If Dir(VOUCHER_PS) = "" Then MsgBox "스크립트가 없습니다: " & VOUCHER_PS, vbCritical, "수출 마감": Exit Sub
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets(1)
+    ws.Range("A" & LOG_ROW & ":A2000").EntireRow.Delete
+    ws.Range("C6").Value = "해외매출 자동전표 만드는 중... (검은 창이 닫힐 때까지 기다려 주세요)"
+    DoEvents
+    Dim rc As Long: rc = CreateObject("WScript.Shell").Run("powershell.exe -NoProfile -ExecutionPolicy Bypass -File """ & VOUCHER_PS & """ -YM " & ym, 1, True)
+    ShowLog f, rc, 3
 End Sub
 
 Public Sub Open_Result()
@@ -119,7 +135,7 @@ Private Sub ShowLog(ByVal folder As String, ByVal rc As Long, ByVal mode As Long
     ' mode 0 = 파일 확인, 1 = 결과 만들기, 2 = PDF 합치기
     Dim checkOnly As Boolean: checkOnly = (mode = 0)
     Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets(1)
-    Dim pre As String: pre = IIf(mode = 2, "PDF_", "")
+    Dim pre As String: pre = IIf(mode = 2, "PDF_", IIf(mode = 3, "전표_", ""))
     Dim logTxt As String: logTxt = ReadUtf8(folder & "\작업\" & pre & "실행기록.txt")
     Dim res As String: res = ReadUtf8(folder & "\작업\" & pre & "결과.txt")
     Dim lines() As String, i As Long, r As Long, s As String
@@ -150,7 +166,9 @@ Private Sub ShowLog(ByVal folder As String, ByVal rc As Long, ByVal mode As Long
     End If
     Dim msg As String: msg = Mid(res, InStr(res & vbLf, vbLf) + 1)
     If Len(msg) > 900 Then msg = Left(msg, 900) & vbCrLf & "... (아래 실행 기록에 전부 있음)"
-    If ok And mode = 2 Then
+    If ok And mode = 3 Then
+        If MsgBox("해외매출 자동전표를 만들었습니다." & vbCrLf & vbCrLf & msg & vbCrLf & vbCrLf & "업로드 전에 같은 폴더의 '검토' 엑셀(확인할 것)을 꼭 봐 주세요." & vbCrLf & "폴더를 열까요?", vbYesNo + vbInformation, "수출 마감") = vbYes Then Shell "explorer.exe """ & VOUCHER_ROOT & "\" & MonthText() & """", vbNormalFocus
+    ElseIf ok And mode = 2 Then
         Dim pdf As String: pdf = PDF_ROOT & "\인쇄용_" & MonthText() & "\" & MonthText() & "_해외_수출서류_인쇄용.pdf"
         If MsgBox("PDF를 합쳤습니다." & vbCrLf & vbCrLf & msg & vbCrLf & vbCrLf & "빠진 서류와 확인할 것은 같은 폴더의 '인쇄순서' 엑셀에 있습니다." & vbCrLf & "PDF를 열까요?", vbYesNo + vbInformation, "수출 마감") = vbYes Then Shell "explorer.exe """ & pdf & """", vbNormalFocus
     ElseIf ok And Not checkOnly Then
@@ -183,7 +201,7 @@ try {
   $ws.Range('B4:B6').Font.Bold = $true
   # 버튼
   $top = $ws.Range('B8').Top; $h = 34; $w = 150; $x0 = $ws.Range('B8').Left
-  $btns = @(@('① 자료 폴더 열기', 'Open_Folder'), @('② 파일 확인만', 'Run_Check'), @('③ 결과 만들기', 'Run_Build'), @('④ 결과 파일 열기', 'Open_Result'), @('⑤ 수출서류 PDF 합치기', 'Run_Pdf'), @('⑥ PDF 폴더 열기', 'Open_PdfFolder'))
+  $btns = @(@('① 자료 폴더 열기', 'Open_Folder'), @('② 파일 확인만', 'Run_Check'), @('③ 결과 만들기', 'Run_Build'), @('④ 결과 파일 열기', 'Open_Result'), @('⑤ 수출서류 PDF 합치기', 'Run_Pdf'), @('⑥ PDF 폴더 열기', 'Open_PdfFolder'), @('⑦ 해외매출 자동전표', 'Run_Voucher'))
   for ($i = 0; $i -lt $btns.Count; $i++) { $b = $ws.Buttons().Add($x0 + ($i % 4) * ($w + 10), $top + [Math]::Floor($i / 4) * ($h + 8), $w, $h); $b.Characters().Text = $btns[$i][0]; $b.OnAction = $btns[$i][1]; $b.Font.Size = 12; $b.Font.Bold = $true; $b.Name = $btns[$i][1] }
   $help = @(
     '쓰는 방법',
@@ -200,7 +218,10 @@ try {
     '4. ⑥ PDF 폴더 열기 → 그 달 해외 PDF 폴더(예: 202611해외pdf)를 열어 면장·인보이스·패킹·BL 폴더를 넣기 (지난달 폴더도 지우지 말 것: 이월분을 거기서 찾음)',
     '5. ⑤ 수출서류 PDF 합치기 → 해외pdf\인쇄용_YYYYMM 에 인쇄용 PDF 하나 + 인쇄순서 엑셀(빠진 서류·확인할 것)',
     '     · 대상: 결과 파일의 전월이월(녹색)·당월·툴링 (다음 달 이월·관세 줄·신코·코마츠·ATLAS 제외)',
-    '     · 인보이스마다 면장 → 인보이스 → 패킹리스트 → BL, 여러 버전이면 금액이 맞는 최신본'
+    '     · 인보이스마다 면장 → 인보이스 → 패킹리스트 → BL, 여러 버전이면 금액이 맞는 최신본',
+    '6. ⑦ 해외매출 자동전표 → 해외자동전표\YYYYMM 에 아마란스 업로드 엑셀 + 검토 엑셀 (결과 파일·인보이스별 상세·신코/코마츠 지출품의서로 만듦)',
+    '     · 인보이스 1건 = 전표 1장: 국외매출(라인별 프로젝트) / 부가세예수금 0원(부가세 사업장·수출신고번호) / 외상매출금(증빙 9), 작성일자 = BL일자',
+    '     · 거래처 코드·품명은 도구\해외전표_거래처.csv, 공장→부가세 사업장은 도구\해외전표_사업장.csv 에서 고침 (새 거래처는 여기에 추가)'
   )
   for ($i = 0; $i -lt $help.Count; $i++) { $ws.Cells(13 + $i, 2).Value2 = $help[$i] }
   $ws.Cells(13, 2).Font.Bold = $true
