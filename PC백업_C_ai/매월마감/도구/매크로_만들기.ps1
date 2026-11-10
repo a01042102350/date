@@ -167,6 +167,7 @@ End Sub
 $key = 'HKCU:\Software\Microsoft\Office\16.0\Excel\Security'
 $old = (Get-ItemProperty $key -ErrorAction SilentlyContinue).AccessVBOM
 Set-ItemProperty $key -Name AccessVBOM -Value 1 -Type DWord
+$before = @(Get-Process EXCEL -ErrorAction SilentlyContinue | % Id)
 $xl = New-Object -ComObject Excel.Application; $xl.DisplayAlerts = $false
 try {
   $wb = $xl.Workbooks.Add(); while ($wb.Worksheets.Count -gt 1) { $wb.Worksheets.Item($wb.Worksheets.Count).Delete() }
@@ -209,7 +210,9 @@ try {
   $wb.SaveAs($out, 52); $wb.Close($false)
   "저장: $out"
 } finally {
-  $xl.Quit(); [void][Runtime.InteropServices.Marshal]::ReleaseComObject($xl); $xl = $null; [GC]::Collect(); Start-Sleep -Seconds 4
+  $xl.Quit(); [void][Runtime.InteropServices.Marshal]::ReleaseComObject($xl); $xl = $null; [GC]::Collect(); [GC]::WaitForPendingFinalizers()
+  $mine = @(Get-Process EXCEL -ErrorAction SilentlyContinue | ? { $before -notcontains $_.Id }); $t0 = Get-Date
+  while (@($mine | ? { -not $_.HasExited }).Count -and ((Get-Date) - $t0).TotalSeconds -lt 30) { Start-Sleep -Milliseconds 500 }   # 엑셀이 닫히며 설정을 다시 써 넣으므로 다 닫힐 때까지 기다림
   if ($null -eq $old) { Remove-ItemProperty $key -Name AccessVBOM -ErrorAction SilentlyContinue } else { Set-ItemProperty $key -Name AccessVBOM -Value $old -Type DWord }
   "VBA 접근 설정 되돌림: $(if ($null -eq $old) { '원래 없음 → 지움' } else { "원래 값 $old" })"
 }
