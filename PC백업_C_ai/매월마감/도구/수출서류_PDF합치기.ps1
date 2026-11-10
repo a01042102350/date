@@ -165,8 +165,8 @@ try {
 
   # ───── ⑥ 목록 엑셀 ─────
   function Fill($sh, $hdrs, $rows, $props) { $data = New-Object 'object[,]' ($rows.Count + 1), $hdrs.Count
-    for ($c = 0; $c -lt $hdrs.Count; $c++) { $data[0, $c] = $hdrs[$c] }
-    for ($r = 0; $r -lt $rows.Count; $r++) { for ($c = 0; $c -lt $props.Count; $c++) { $v = $rows[$r].($props[$c]); if ($null -ne $v) { $v = $v.psobject.BaseObject; if ($v -is [int] -or $v -is [double] -or $v -is [long]) { $v = [double]$v } else { $v = [string]$v } }; $data[($r + 1), $c] = $v } }
+    for ($c = 0; $c -lt $hdrs.Count; $c++) { $data.SetValue([object][string]$hdrs[$c], [int]0, [int]$c) }
+    for ($r = 0; $r -lt $rows.Count; $r++) { for ($c = 0; $c -lt $props.Count; $c++) { $v = $rows[$r].($props[$c]); if ($null -ne $v) { $v = $v.psobject.BaseObject; if ($v -is [int] -or $v -is [double] -or $v -is [long]) { $v = [double]$v } else { $v = [string]$v } }; $data.SetValue([object]$v, [int]($r + 1), [int]$c) } }
     $sh.Range($sh.Cells(1, 1), $sh.Cells($rows.Count + 1, $hdrs.Count)).Value2 = $data
     $hr = $sh.Range($sh.Cells(1, 1), $sh.Cells(1, $hdrs.Count)); $hr.Font.Bold = $true; $hr.Interior.Color = 0xF2E6DD; $sh.Columns.AutoFit() | Out-Null }
   $wb2 = $xl.Workbooks.Add(); while ($wb2.Worksheets.Count -lt 3) { $wb2.Worksheets.Add([Type]::Missing, $wb2.Worksheets.Item($wb2.Worksheets.Count)) | Out-Null }
