@@ -1,4 +1,18 @@
-﻿param([string]$XlsPath = "C:\ai\기초자료\202609\mes9월.xls", [string]$Out = "C:\ai\기초자료\202609\ekfmsrj.html")
+﻿# 2026-11-12: -YM 으로 달을 받음 (예: -YM 202610). -XlsPath를 주면 그 파일의 폴더 이름(YYYYMM)으로 달을 정함
+param([int]$YM = 0, [string]$XlsPath = '', [string]$Out = '')
+if (-not $YM -and $XlsPath) { $p0 = Split-Path (Split-Path $XlsPath -Parent) -Leaf; if ($p0 -match '^\d{6}$') { $YM = [int]$p0 } }
+if (-not $YM) { $YM = [int](@(Get-ChildItem 'C:\ai\기초자료' -Directory | ? { $_.Name -match '^\d{6}$' -and @(Get-ChildItem $_.FullName -File -Filter 'mes*월.xls' -ErrorAction SilentlyContinue).Count } | sort Name)[-1].Name) }
+$yy = [int][math]::Floor($YM / 100); $mm = [int]($YM % 100); $nx = $mm % 12 + 1; $mm2 = '{0:00}' -f $mm; $yy2 = '{0:00}' -f ($yy % 100)
+$mLab = "$($mm)월"; $nLab = "$($nx)월"; $lineName = "$($mm)월라인"; $sheetName = "mes$($mm)월"
+if (-not $XlsPath) { $XlsPath = "C:\ai\기초자료\$YM\$sheetName.xls" }
+if (-not $Out) { $Out = Join-Path (Split-Path $XlsPath -Parent) 'ekfmsrj.html' }
+# 설명 문구는 9월에 맞춰 적혀 있음 → 다른 달이면 달·시트 이름을 바꿔 보여 줌
+function MT($s) {
+  if ($YM -eq 202609 -or -not $s) { return $s }
+  $s = $s -replace 'mes9월', $sheetName -replace '9월라인', $lineName -replace '26\.09\(NEW\)', "$yy2.$mm2(NEW)" -replace '\(2026\.09\)', "($yy.$mm2)" -replace '10/01', "$nx/01"
+  $s = $s -replace '10월', '{N}' -replace '9월', '{M}' -replace '\{N\}', $nLab -replace '\{M\}', $mLab
+  $s -replace 'PDF 매출내역서', '매출내역서 엑셀' -replace '/PDF', '/매출내역서' -replace '= PDF', '= 매출내역서' -replace '\(PDF\)', '(매출내역서)'
+}
 $ErrorActionPreference = 'Stop'
 function HE($s) { [System.Net.WebUtility]::HtmlEncode([string]$s) }
 function Fmt($v, $isDate, $hdr) {
@@ -25,7 +39,7 @@ $rateCols = '환율', '기초자료환율', '환율(회계)'
 $centerCols = 'NO', '출고일', 'BL날짜', '인보이스 번호', '수출면장 번호', '구분', '품목구분', '품번', '라인구분', '가공구분', '출고Lot', '담당자', '통화', '분류', '인보이스/Lot', '고객사', '수출면장 번호(회계)', 'BL날짜(회계)', '고객사(MES)', '사업자번호', '작성일', '세금계산서 일련번호'
 $memoCols ='메모', '에러내용', '사유', '비교 출처', '출처 기준처', '품명', '기준값(회계·MES)', '비교값', 'MES 행', '항목', '이월 사유', '참고'
 $sheets = @(
-  @{ Key = 'mes'; Name = 'mes9월';     Title = 'MES 출고 데이터'; RedCols = 'BL날짜','인보이스 번호','환율','기초자료환율','달러','기초자료달러','수출면장 번호','출고Lot'
+  @{ Key = 'mes'; Name = $sheetName;     Title = 'MES 출고 데이터'; RedCols = 'BL날짜','인보이스 번호','환율','기초자료환율','달러','기초자료달러','수출면장 번호','출고Lot'
      Desc = 'MES 9월 출고 1행 = 1품목(맨 아래 TOTAL 제외). 출고Lot = 인보이스 번호. 빨간 칸 = 회계 기준과 다르거나 자료 없음(사유는 오류목록). 기초자료환율·기초자료달러 = 9월라인/PDF 값(달러는 MES 금액 비율로 행에 배분, 신코·코마츠는 엔화).' }
   @{ Key = 'sum'; Name = '해외매출'; Title = '해외매출'; RedCols = '*'
      Desc = '9월 해외매출(옛 면장별합계). 회계 면장 중 회색(다음 달 이월) 제외. 신코·코마츠는 PDF 매출내역서 기준(스크랩 별도 칸), 그 외는 MES, MES에 없는 전월 출고분은 9월라인 참고. 빨간 칸 = 회계와 다름(에러내용 열 참고).' }
@@ -47,9 +61,9 @@ $readme = @(
   @('기초자료환율·달러', '9월라인 / PDF 매출내역서 값. 회계 환율·외화금액과 비교'),
   @('회색(회계)', '회계 파일 면장번호 칸이 회색이면 무조건 다음 달 이월 → 해외매출에서 제외, 이월매출 시트에 표시'),
   @('이월매출', 'BL 미확정·9월라인에 없음(회계 BL일 10/01) 또는 회계 회색 면장 → 10월 매출. 인보이스별 1줄'),
-  @('신코·코마츠', '매월 기초자료의 "N월신코, 코마츠 …xlsx" 엑셀에서 탭이 색칠된 시트를 자동으로 읽음(없으면 PDF 값). 인보이스 앞 "10-"처럼 숫자가 붙으면 그 달(마감 월보다 크면 이월). 엑셀에 없고 회계가 회색이면 이월'),
+  @('신코·코마츠', '매월 기초자료의 신코·코마츠 매출내역서 엑셀(9월 "9월신코, 코마츠 지출품의서마감.xlsx", 10월부터 "N월신코_지출품의서 마감.xlsx"·"N월코마츠_지출품의서 마감.xlsx")에서 "신코YYYYMM"·"코마츠YYYYMM" 시트(없으면 탭이 색칠된 시트)를 자동으로 읽음. 인보이스 앞 "10-"처럼 숫자가 붙으면 그 달(마감 월보다 크면 이월). 엑셀에 없으면(회계 회색이거나 회계에도 없으면) 다음 달 이월'),
   @('알림', '에러는 아니지만 매달 꼭 확인할 것 (노란 줄). 예: 매출내역서 엑셀 엔화에 소수점이 있어 회계(반올림 금액)와 원화가 몇 원 다름 → 회계가 맞음'),
-  @('출고Lot 오기', 'MES DSM2608-AL6 = DSM2608-AL06(8월 출고·10월 이월)로 인식. 확인 완료라 에러 표시 안 함(이월매출 참고 열에 기록)'),
+  @('출고Lot 오기', '어느 자료에도 없는 출고Lot이 비슷한 번호 하나와 같으면 그 번호로 인식(예: 9월 MES DSM2608-AL6 = DSM2608-AL06). 확인 완료라 에러 표시 안 함(이월매출 참고 열에 기록)'),
   @('국내매출', 'MES 출고 · 일별마감 · 아마란스 전자세금계산서(매출) 3가지를 고객사별로 비교. 기초자료에 "N월세금계산서.xlsx"를 넣으면 세금계산서도 자동 비교. 수정세금계산서는 원본과 합친 금액'),
   @('전자세금계산서 금액(MES)', 'mes9월 시트 금액 옆 칸. 같은 거래처의 세금계산서를 작성일별로 묶고, MES 행은 출고일 이후 가장 가까운 작성일 묶음에 넣어 MES 금액 비율로 나눔. 맨 끝 칸에 그 세금계산서 일련번호(승인번호)'),
   @('일별마감 비고',"'10월이월' = 9월 매출에서 빼고 이월매출 시트로 / '불량반출' = 매출 아님, 참고 기록 / 마이너스 줄 = 반품·불량 차감 / '소급' = 단가 소급 / 날짜·품번 없는 소계 줄은 뺌"),
@@ -121,6 +135,7 @@ try {
 } finally { $xl.Quit() }
 
 $gptPrompt = "이 페이지의 'README'를 먼저 읽고, 'MES 출고 데이터'의 빨간 칸(st-bad)과 '오류목록'의 분류 열을 기준으로 분석해줘. 비교 기준은 회계 파일이고, 신코·코마츠 행의 기초자료달러는 엔화 금액이야. '이월매출'(10월로 넘어가는 건)과 '참고'는 정상이니 '에러'만 정리해줘."
+foreach ($s0 in $sheets) { $s0.Desc = MT $s0.Desc }; $readme = @($readme | % { ,@($_[0], (MT $_[1])) }); $gptPrompt = MT $gptPrompt
 $css = @'
 :root{--bg:#ffffff;--fg:#1e2a2a;--muted:#5b6b6a;--line:#d5dddc;--head:#0f3d3e;--headfg:#ffffff;--tint:#e6f0ee;--alt:#f6f8f8;--bad:#b42318;--badbg:#fdecea;--carry:#eceff1;--warnbg:#fff4c2}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1716;--fg:#e4ecea;--muted:#9fb0ae;--line:#2a3837;--head:#1f4a4a;--headfg:#ffffff;--tint:#16302f;--alt:#141f1e;--bad:#ff8a80;--badbg:#3a1714;--carry:#1c2626;--warnbg:#3a3214}}
@@ -202,11 +217,11 @@ if(et){
 document.getElementById('copy').addEventListener('click',async()=>{const t=document.getElementById('gpt').textContent;try{await navigator.clipboard.writeText(t);document.getElementById('copy').textContent='복사됨'}catch(e){}});
 '@
 $h = New-Object System.Text.StringBuilder
-[void]$h.Append("<!doctype html><html lang=`"ko`"><head><meta charset=`"utf-8`"><meta name=`"viewport`" content=`"width=device-width,initial-scale=1`"><title>9월 수출 마감 대사</title><style>$css</style></head><body>")
-[void]$h.Append("<header><h1>9월 수출 마감 대사 데이터</h1><p class=`"sub`">대신금속 2026년 9월 · mes9월.xls 기준 (2026-10-28 작업 8~12 반영) · 비교 기준 = 회계 파일</p>")
-[void]$h.Append("<div class=`"stats`"><div class=`"stat`"><b>$($counts['mes'])행</b><span>MES 출고 데이터 (빨간 칸 있는 행 $($stats['mes']))</span></div><div class=`"stat`"><b>$($counts['sum'] - 0)건</b><span>해외매출</span></div><div class=`"stat`"><b>$('{0:N0}' -f $stats['krw'])원</b><span>해외매출 원화(회계) 합계</span></div><div class=`"stat`"><b>$($counts['carry'])건</b><span>이월매출 (10월로)</span></div><div class=`"stat bad`"><b id=`"errLeft`">$($stats['err'])건</b><span>남은 에러 (오류목록 $($counts['err'])줄 중)</span></div></div>")
+[void]$h.Append("<!doctype html><html lang=`"ko`"><head><meta charset=`"utf-8`"><meta name=`"viewport`" content=`"width=device-width,initial-scale=1`"><title>$mLab 수출 마감 대사</title><style>$css</style></head><body>")
+[void]$h.Append("<header><h1>$mLab 수출 마감 대사 데이터</h1><p class=`"sub`">대신금속 $($yy)년 $mLab · $sheetName.xls 기준 · 비교 기준 = 회계 파일</p>")
+[void]$h.Append("<div class=`"stats`"><div class=`"stat`"><b>$($counts['mes'])행</b><span>MES 출고 데이터 (빨간 칸 있는 행 $($stats['mes']))</span></div><div class=`"stat`"><b>$($counts['sum'] - 0)건</b><span>해외매출</span></div><div class=`"stat`"><b>$('{0:N0}' -f $stats['krw'])원</b><span>해외매출 원화(회계) 합계</span></div><div class=`"stat`"><b>$($counts['carry'])건</b><span>이월매출 ($($nLab)로)</span></div><div class=`"stat bad`"><b id=`"errLeft`">$($stats['err'])건</b><span>남은 에러 (오류목록 $($counts['err'])줄 중)</span></div></div>")
 # 자료 올리기: GitHub 업로드 화면(그달·다음 달 기초자료 폴더)으로 가는 버튼. 올린 파일은 10분마다 PC로 자동 동기화
-$ymCur = Split-Path (Split-Path $XlsPath -Parent) -Leaf; if ($ymCur -notmatch '^\d{6}$') { $ymCur = '202609' }
+$ymCur = "$YM"
 $ymNext = [DateTime]::ParseExact($ymCur, 'yyyyMM', $null).AddMonths(1).ToString('yyyyMM')
 $ghBase = "https://github.com/a01042102350/date"; $fold = [Uri]::EscapeDataString('기초자료')
 [void]$h.Append("<div class=`"upload`"><p><b>자료 올리기</b> — 버튼을 누르면 GitHub 업로드 화면이 열립니다. 파일을 끌어다 놓고 아래 <b>Commit changes</b>를 누르면 10분 안에 PC의 기초자료 폴더로 자동으로 내려옵니다. (GitHub 로그인 필요) 다 올린 뒤 클로드에게 ""$ymNext 반영해줘""라고 하면 됩니다.</p><a class=`"btn`" href=`"$ghBase/upload/main/$fold/$ymNext`" target=`"_blank`" rel=`"noopener`">$ymNext 자료 올리기 (다음 달)</a><a class=`"btn ghost`" href=`"$ghBase/upload/main/$fold/$ymCur`" target=`"_blank`" rel=`"noopener`">$ymCur 자료 추가</a><a class=`"btn ghost`" href=`"$ghBase/tree/main/$fold`" target=`"_blank`" rel=`"noopener`">GitHub 폴더 보기</a></div>")
@@ -224,7 +239,7 @@ foreach ($s in $sheets) {
   $ymH = Split-Path (Split-Path $XlsPath -Parent) -Leaf; $dirH = Split-Path $XlsPath -Parent
   $saveBtn = if ($s.Key -eq 'mes') { "<button type=`"button`" id=`"mk-save`" class=`"del`" data-ym=`"$ymH`" data-dir=`"$(HE $dirH)`">체크 저장</button><span id=`"mk-msg`" class=`"gonecnt`"></span>" } else { '' }
   $errBtns = if ($s.Key -eq 'err') { "<button type=`"button`" id=`"del-done`" class=`"del`">체크한 항목 삭제(해결)</button><button type=`"button`" id=`"restore`">삭제한 항목 되살리기</button><span id=`"gonecnt`" class=`"gonecnt`"></span>" } else { '' }
-  [void]$h.Append("<section class=`"sheet`" id=`"s-$($s.Key)`"><h2>$(HE $s.Title)</h2><p class=`"sub`">$(HE $s.Desc)</p>$(($notes[$s.Key] | % { ""<p class=`""note`""><b>$(HE $_)</b></p>"" }) -join '')<div class=`"tools`" data-table=`"t-$($s.Key)`"><input type=`"search`" placeholder=`"검색 (예: DSM2609-SK03, 신코, 에러)`" aria-label=`"$(HE $s.Title) 검색`">$onlyBox$errBtns$saveBtn<span class=`"count`"></span>$tagBox</div><div class=`"wrap`">$($tables[$s.Key])</div></section>")
+  [void]$h.Append("<section class=`"sheet`" id=`"s-$($s.Key)`"><h2>$(HE $s.Title)</h2><p class=`"sub`">$(HE $s.Desc)</p>$(($notes[$s.Key] | % { ""<p class=`""note`""><b>$(HE $_)</b></p>"" }) -join '')<div class=`"tools`" data-table=`"t-$($s.Key)`"><input type=`"search`" placeholder=`"검색 (예: DSM$yy2$mm2-SK01, 신코, 에러)`" aria-label=`"$(HE $s.Title) 검색`">$onlyBox$errBtns$saveBtn<span class=`"count`"></span>$tagBox</div><div class=`"wrap`">$($tables[$s.Key])</div></section>")
 }
 [void]$h.Append("</main><script>$js</script></body></html>")
 [IO.File]::WriteAllText($Out, $h.ToString(), (New-Object Text.UTF8Encoding $false))

@@ -206,6 +206,9 @@ try {
         $rn0 = $sh0.UsedRange.Rows.Count
         for ($r0 = 2; $r0 -le $rn0; $r0++) { $s0 = "$($sh0.Cells($r0,2).Value2)"; if (-not $s0 -or $s0 -match '^(해외|국내)매출') { continue }
           $s1 = [regex]::Replace($s0, '\d+', { param($m) if ($mapS.ContainsKey($m.Value)) { "$($mapS[$m.Value])" } else { $m.Value } }); if ($s1 -ne $s0) { $sh0.Cells($r0,2).NumberFormat = "@"; $sh0.Cells($r0,2).Value2 = [string]$s1 } }
+      } elseif ($sh0.Name -in '면장불일치', '환율불일치', '달러불일치', '라인구분불일치') {   # 월마감_준비가 만든 첫 단계 시트(A열 'MES 행' = 정렬 전 번호)도 새 위치로 (2026-11-12)
+        $rn0 = $sh0.UsedRange.Rows.Count
+        for ($r0 = 2; $r0 -le $rn0; $r0++) { $x0 = $sh0.Cells($r0,1).Value2; if ($x0 -is [double] -and $mapS.ContainsKey("$([int]$x0)")) { $sh0.Cells($r0,1).Value2 = [double]$mapS["$([int]$x0)"] } }
       } }
       "줄 정렬: 국내 위 · 해외 아래(품번 → 출고일), $($moved)줄 위치 바뀜 (해외 시작 $($firstOv)행)"
     }
@@ -442,6 +445,10 @@ try {
     $q = 11; foreach ($sc0 in @($C['출고수량'], $C['금액'])) { $sc = & $ColL $sc0; $gs.Cells($row, $q).Formula = "=SUMIFS($mesName!${sc}:${sc},$mesName!${mjL}:${mjL},`$A$row)"; $q++ }
     # 회계 기준 비교 대상 (PDF 또는 9월라인)
     $p = $pdf[$t.Inv]; $l = $line[$t.Inv]
+    # 툴링비: 회계는 'DSM2610-24(툴링비)', 라인 파일은 'DSM2610-24' → 뒤 '(툴링비)' 빼고 찾음. 툴링비는 MES 출고가 없는 것이 정상 (2026-11-12, 10월)
+    $isTool = $t.Inv -match '툴링'
+    if (-not $l -and $isTool) { $l = $line[($t.Inv -replace '\s*\(툴링비\)\s*$', '')] }
+    $noMes = if ($isTool) { "툴링비라 MES 출고 없음(정상)" } else { "MES $mLab 출고에 없음(전월 출고분)" }
     if ($p) {
       $cmp = [pscustomobject]@{ N = $p.File; Bl = $p.BlN; Rate = $p.Rate; Fc = $p.Fc; Krw = $p.Krw; Mj = $p.Mj }
       $k0 = 13; foreach ($k in $cats) { $vv = [double]$p.Split[$k]; if ($vv) { $gs.Cells($row, $k0).Value2 = $vv }; $k0++ }
@@ -457,8 +464,8 @@ try {
       } elseif ($l) {
         $k0 = 13; foreach ($k in $cats) { if ($l.Split[$k]) { $gs.Cells($row, $k0).Value2 = [double]$l.Split[$k] }; $k0++ }
         $gs.Range($gs.Cells($row,13), $gs.Cells($row,18)).Interior.Color = 10092543; $gs.Cells($row, 21).Value2 = "$($lineName)(참고)"; $nRef++
-        $note += "MES $mLab 출고에 없음(전월 출고분)"
-      } else { $gs.Range($gs.Cells($row,13), $gs.Cells($row,18)).Interior.Color = $RED; $note += "6칸 분해 자료 없음"; $note += "MES $mLab 출고에 없음(전월 출고분)" }
+        $note += $noMes
+      } else { $gs.Range($gs.Cells($row,13), $gs.Cells($row,18)).Interior.Color = $RED; $note += "6칸 분해 자료 없음"; $note += $noMes }
     }
     # 회계와 비교 → 다르면 해당 칸 빨간색
     if (-not $cmp) { $note += "$($lineName)에 인보이스 없음(비교 불가)" }

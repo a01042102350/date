@@ -1,5 +1,12 @@
 ﻿# 제출 전 점검 (읽기만 함): 시트별 수식 오류·빨간 칸·내부용 문구, 숨은 시트, 합계 대조, 남은 에러
-param([string]$XlsPath = "C:\ai\기초자료\202609\mes9월.xls", [string]$Html = "C:\ai\기초자료\202609\ekfmsrj.html")
+#  2026-11-12: -YM 으로 달을 받음 (예: -YM 202610). 기본은 그 달 제출본(제출본\mesN월_제출본.xls + YYYY년M월_매출마감_결과.html)
+param([int]$YM = 0, [string]$XlsPath = '', [string]$Html = '')
+if (-not $YM -and $XlsPath) { $p0 = Split-Path (Split-Path $XlsPath -Parent) -Leaf; if ($p0 -eq '제출본') { $p0 = Split-Path (Split-Path (Split-Path $XlsPath -Parent) -Parent) -Leaf }; if ($p0 -match '^\d{6}$') { $YM = [int]$p0 } }
+if (-not $YM) { $YM = [int](@(Get-ChildItem 'C:\ai\기초자료' -Directory | ? { $_.Name -match '^\d{6}$' -and @(Get-ChildItem $_.FullName -File -Filter 'mes*월.xls' -ErrorAction SilentlyContinue).Count } | sort Name)[-1].Name) }
+$mLab = "$($YM % 100)월"; $sheetName = "mes$mLab"
+if (-not $XlsPath) { $XlsPath = "C:\ai\기초자료\$YM\제출본\$($sheetName)_제출본.xls" }
+if (-not $Html) { $Html = "C:\ai\기초자료\$YM\제출본\$([math]::Floor($YM / 100))년$($mLab)_매출마감_결과.html" }
+"== 점검: $XlsPath"
 $xl = New-Object -ComObject Excel.Application; $xl.Visible = $false; $xl.DisplayAlerts = $false
 try {
   $wb = $xl.Workbooks.Open($XlsPath, 0, $true)
@@ -18,15 +25,15 @@ try {
   "== 이름 정의(#REF 등)"; foreach ($n in @($wb.Names)) { if ("$($n.RefersTo)" -match '#REF') { "  $($n.Name) = $($n.RefersTo)" } }
   "== 합계 대조"
   $gs = $wb.Worksheets.Item("해외매출"); $gn = $gs.UsedRange.Rows.Count; "  해외매출 합계줄: 원화(회계) $($gs.Cells($gn,9).Text) / MES 금액 $($gs.Cells($gn,11).Text)"
-  $ks = $wb.Worksheets.Item("국내매출"); $kn = $ks.UsedRange.Rows.Count; "  국내매출 합계줄: MES 금액 $($ks.Cells($kn,3).Text) / 9월 매출 $($ks.Cells($kn,12).Text) / 공급가액 $($ks.Cells($kn,16).Text) / 세금계산서 차이 $($ks.Cells($kn,19).Text)"
-  $ws = $wb.Worksheets.Item("mes9월"); $mn = $ws.UsedRange.Rows.Count; $cA = 1; while ("$($ws.Cells(1,$cA).Text)" -ne '금액') { $cA++ }
-  "  mes9월 TOTAL 금액 $($ws.Cells($mn,$cA).Text) (수식 $($ws.Cells($mn,$cA).Formula)) / 전자세금계산서 금액 $($ws.Cells($mn,$cA+1).Text)"
+  $ks = $wb.Worksheets.Item("국내매출"); $kn = $ks.UsedRange.Rows.Count; "  국내매출 합계줄: MES 금액 $($ks.Cells($kn,3).Text) / $mLab 매출 $($ks.Cells($kn,12).Text) / 공급가액 $($ks.Cells($kn,16).Text) / 세금계산서 차이 $($ks.Cells($kn,19).Text)"
+  $ws = $wb.Worksheets.Item($sheetName); $mn = $ws.UsedRange.Rows.Count; $cA = 1; while ("$($ws.Cells(1,$cA).Text)" -ne '금액') { $cA++ }
+  "  $sheetName TOTAL 금액 $($ws.Cells($mn,$cA).Text) (수식 $($ws.Cells($mn,$cA).Formula)) / 전자세금계산서 금액 $($ws.Cells($mn,$cA+1).Text)"
   $cs = $wb.Worksheets.Item("이월매출"); $cn = $cs.UsedRange.Rows.Count; "  이월매출 합계줄: 원화 $($cs.Cells($cn,8).Text)"
   "== 오류목록 분류별"
   $es = $wb.Worksheets.Item("오류목록"); $en = $es.UsedRange.Rows.Count; $byC = @{}
   for ($i = 2; $i -le $en; $i++) { $k = "$($es.Cells($i,1).Text)"; if ($k) { $byC[$k]++ } }
   $byC.Keys | % { "  $_ $($byC[$_])줄" }
-  "  참고 중 '작성일 … 이번 달 비교에서 제외'(10월 세금계산서): " + @(2..$en | ? { "$($es.Cells($_,10).Text)" -match '이번 달 비교에서 제외' }).Count + "줄"
+  "  참고 중 '작성일 … 이번 달 비교에서 제외'(다른 달 세금계산서): " + @(2..$en | ? { "$($es.Cells($_,10).Text)" -match '이번 달 비교에서 제외' }).Count + "줄"
   $wb.Close($false)
 } finally { $xl.Quit() }
 "== HTML"

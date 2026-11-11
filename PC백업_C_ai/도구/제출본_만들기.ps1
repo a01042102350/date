@@ -3,7 +3,13 @@
 #    → 빨간 칸 = 진짜 에러만 (MES 금액이 비어 있는 행)
 #  - 숨은 작업용 시트 '오류원본' 삭제, 오류목록의 다음 달 세금계산서 참고 줄 삭제
 #  - HTML: GPT 문구·복사 버튼 삭제, 이름 변경
-param([string]$Dir = "C:\ai\기초자료\202609", [string]$Mes = "mes9월.xls", [string]$MonthLabel = "2026년9월")
+#  2026-11-12: -YM 으로 달을 받음 (예: -YM 202610 → 기초자료\202610\mes10월.xls, "2026년10월_매출마감_결과.html")
+param([int]$YM = 0, [string]$Dir = '', [string]$Mes = '', [string]$MonthLabel = '')
+if (-not $YM -and $Dir -and (Split-Path $Dir -Leaf) -match '^\d{6}$') { $YM = [int](Split-Path $Dir -Leaf) }
+if (-not $YM) { $YM = [int](@(Get-ChildItem 'C:\ai\기초자료' -Directory | ? { $_.Name -match '^\d{6}$' -and @(Get-ChildItem $_.FullName -File -Filter 'mes*월.xls' -ErrorAction SilentlyContinue).Count } | sort Name)[-1].Name) }
+if (-not $Dir) { $Dir = "C:\ai\기초자료\$YM" }
+if (-not $Mes) { $Mes = "mes$($YM % 100)월.xls" }
+if (-not $MonthLabel) { $MonthLabel = "$([math]::Floor($YM / 100))년$($YM % 100)월" }
 $GRAY = 15921906; $YEL = 10284031; $RED = 255
 $out = Join-Path $Dir "제출본"; New-Item -ItemType Directory -Force $out | Out-Null
 $xlsOut = Join-Path $out ($Mes -replace '\.xls$', '_제출본.xls'); Copy-Item (Join-Path $Dir $Mes) $xlsOut -Force
@@ -39,7 +45,7 @@ try {
 } finally { $xl.Quit() }
 # HTML
 $htmlOut = Join-Path $out "$($MonthLabel)_매출마감_결과.html"
-& "C:\ai\도구\월마감_HTML.ps1" -XlsPath $xlsOut -Out $htmlOut | Out-Null
+& "C:\ai\도구\월마감_HTML.ps1" -YM $YM -XlsPath $xlsOut -Out $htmlOut | Out-Null
 $h = [IO.File]::ReadAllText($htmlOut)
 $h = [regex]::Replace($h, '<div class="prompt">.*?</div>', '', 'Singleline')
 $h = [regex]::Replace($h, '<div class="upload">.*?</div>', '', 'Singleline')   # 검사자용에는 자료 올리기 버튼 빼기
