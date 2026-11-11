@@ -4,8 +4,8 @@
 #  - 인보이스 1건 = 전표 1장. 작성일자 = 수출 파일 BL일자, 금액 = 수출 파일 원화(당월매출)
 #  - 줄: 국외매출(4140000, 대변) 라인별 여러 줄(프로젝트) → 부가세예수금(2550000, 대변 0원) → 외상매출금(1080000, 차변, 증빙 9)
 #  - 라인별 금액 = 해외영업팀 '인보이스별 상세'(신코·코마츠는 지출품의서 마감)의 사형·자동·금형·가공1·가공2·가공3·스크랩 칸
-#  - 적요 = "인보이스 품명 $외화*@환율 -라인이름"(부가세·외상 줄은 라인이름 없음), 관세는 전표를 따로
-#  - 툴링비 적요 = "인보이스(툴링비) $외화*@환율" (품명 없음), 작성번호 = 날짜마다 1000부터 (2026-11-11 사용자 지정)
+#  - 적요 = "인보이스 $외화*@환율 -라인이름"(부가세·외상 줄은 라인이름 없음), 관세는 전표를 따로
+#    품명 없음, 환율은 수출 파일 환율 칸에 보이는 그대로, 툴링비는 "인보이스(툴링비)", 작성번호 = 날짜마다 1000부터 (2026-11-11 사용자 지정)
 #  - 회계단위 1000 고정, 부가세 사업장 = 수출 파일 공장(마산1·마산2…) → 해외전표_사업장.csv
 param([Parameter(Mandatory = $true)][string]$YM, [string]$ResultFile, [string]$SheetName, [string]$DetailFile, [string[]]$JpSources, [string]$OutDir, [string]$CompareCsv, [string]$TaxType = '16', [int]$StartNo = 1000)
 $ErrorActionPreference = 'Stop'
@@ -54,7 +54,7 @@ try {
     if ($key -like 'ATLAS*') { continue }                    # ATLAS는 국내(전자세금계산서) 매출이라 해외 전표 아님
     $bl = $ws.Cells($q, 6).Value2
     $SALES.Add([pscustomobject]@{ 행 = $q; 키 = $key; 공장 = $ws.Cells($q, 2).Text.Trim(); 인보이스 = $invRaw; 면장 = $ws.Cells($q, 4).Text.Trim()
-        BL = $(if ($bl -is [double]) { [DateTime]::FromOADate($bl) } else { $null }); 환율 = (NumV $ws.Cells($q, 7).Value2); 외화 = (NumV $ws.Cells($q, 8).Value2); 원화 = (NumV $ws.Cells($q, 9).Value2)
+        BL = $(if ($bl -is [double]) { [DateTime]::FromOADate($bl) } else { $null }); 환율 = (NumV $ws.Cells($q, 7).Value2); 환율글 = ($ws.Cells($q, 7).Text -replace '\s', ''); 외화 = (NumV $ws.Cells($q, 8).Value2); 원화 = (NumV $ws.Cells($q, 9).Value2)
         관세 = ($invRaw -match '관세'); 툴링 = ($invRaw -match '툴링') }) | Out-Null }
   $wb.Close($false)
   Say "  이번 달 매출 줄(이월·ATLAS 제외): $($SALES.Count)"
@@ -94,12 +94,13 @@ try {
     # 작성번호: 날짜마다 $StartNo(1000)부터 1씩 (사용자 지정 2026-11-11 — 손으로 넣는 전표 번호와 안 겹치게)
     $d8 = $x.BL.ToString('yyyyMMdd'); if (-not $seqByDate.ContainsKey($d8)) { $seqByDate[$d8] = $StartNo - 1 }; $seqByDate[$d8]++; $no = $seqByDate[$d8]
     $invTxt = $x.인보이스 -replace '\s', ''
-    # 툴링비 적요 = "인보이스(툴링비) 금액" — 품명 없음 (사용자 지정 2026-11-11). 거래처 설정 툴링품명 칸에 값을 넣으면 그 품명을 씀
+    # 적요 = "인보이스 금액*@환율" — 품명 없음, 환율은 수출 파일 환율 칸에 보이는 그대로 (사용자 지정 2026-11-11)
+    # 예: DSM2609-JS03 ¥5,232,444.00*@8.6128 -사형1 / DSM2610-25(툴링비) $7,350.00*@1,338.60
     if ($x.툴링 -and $invTxt -notmatch '\(툴링비\)') { $invTxt += '(툴링비)' }
-    $desc = if ($x.관세 -and $cu.관세품명) { $cu.관세품명 } elseif ($x.툴링) { "$($cu.툴링품명)" } else { $cu.품명 }
     $krw = [Math]::Round([double]$x.원화, 0)
-    $amtTxt = switch ($cu.통화) { 'JPY' { '¥' + ('{0:N2}' -f $x.외화) + '*@' + ([double]$x.환율).ToString('0.####') } 'KRW' { '\' + ('{0:N0}' -f $krw) } default { '$' + ('{0:N2}' -f $x.외화) + '*@' + ('{0:N2}' -f $x.환율) } }
-    $base = ("$invTxt $desc $amtTxt" -replace '\s+', ' ').Trim()
+    $rateTxt = if ($x.환율글 -and $x.환율글 -notmatch '#' -and $x.환율글 -ne '-') { $x.환율글 } elseif ($cu.통화 -eq 'JPY') { ([double]$x.환율).ToString('0.0000') } else { '{0:N2}' -f $x.환율 }
+    $amtTxt = switch ($cu.통화) { 'JPY' { '¥' + ('{0:N2}' -f $x.외화) + '*@' + $rateTxt } 'KRW' { '\' + ('{0:N0}' -f $krw) } default { '$' + ('{0:N2}' -f $x.외화) + '*@' + $rateTxt } }
+    $base = ("$invTxt $amtTxt" -replace '\s+', ' ').Trim()
     # 라인별 금액
     $sp0 = $SPL[(NormInv ($x.인보이스 -replace '\(툴링비\)', ''))]; $parts = [ordered]@{}
     if (-not $sp0 -and $x.인보이스 -match '^DSM\d{2}(\d{2}-.+)$') { $tail = $matches[1]; $cand = @($SPL.Keys | Where-Object { $_ -match ('^DSM\d{2}' + [regex]::Escape((NormInv $tail)) + '$') })
