@@ -25,7 +25,7 @@ if ($TaxFile) { $taxCands = @($TaxFile) } else {
   foreach ($pat in '*매출전자세금계산서목록*.xls*', 'acb2050*.xlsx') { foreach ($d in @($monDir, $baseDir, "C:\ai\기초자료\$YM")) { if (Test-Path -LiteralPath $d) { $taxCands += @(Get-ChildItem -LiteralPath $d -File | Where-Object { $_.Name -like $pat -and $_.Name -notlike '~$*' } | Sort-Object LastWriteTime -Descending | ForEach-Object { $_.FullName }) } } } }
 foreach ($d in @($monDir, $baseDir, "C:\ai\기초자료\$YM")) { if (Test-Path -LiteralPath $d) { $sumCands += @(Get-ChildItem -LiteralPath $d -File | Where-Object { $_.Name -like '*매출명세서목록*.xls*' -and $_.Name -notlike '~$*' } | Sort-Object LastWriteTime -Descending | ForEach-Object { $_.FullName }) } }
 # 홈택스 공급자 종사업장번호 → 아마란스 부가세사업장 (2026-10 홈택스 목록: 종사업장 1 = 다이헨·맥시스·알멕 물품대·신우테크윈·아트라스 = 아마란스 '대신금속(주)마산3', 빈칸 = 본점)
-$JONG = @{ '' = '1000'; '1' = '4000' }
+$JongMap = @{ '' = '1000'; '1' = '4000' }
 if (-not $LineSheet) { $LineSheet = "$($M)월" }; if (-not $CloseSheet) { $CloseSheet = $ym4 }
 if (-not $OutDir) { $OutDir = $monDir }
 $template = Join-Path $baseDir '자동전표처리(일반) 양식.xlsx'; if (-not (Test-Path -LiteralPath $template)) { $template = Join-Path $root '해외자동전표\자동전표처리(일반) 양식.xlsx' }
@@ -109,26 +109,63 @@ try {
   Say "  매출마감 세금계산서(신코·코마츠 제외): $($INVS.Count)장"
 
   # ── ③ 아마란스 세금계산서 목록(있으면): 세액·날짜·승인번호·사업장 확인용 ──
-  $TAX = @(); $TAXBY = @{}
-  if ($TaxFile) {
-    $tb = $xl.Workbooks.Open($TaxFile, 0, $true); $tv = $tb.Worksheets.Item(1).UsedRange.Value2; $tb.Close($false)
+  function IssNo($no) { $n = ("$no" -replace '-', '').ToLower(); if ($n -match '^\d{8}[0-9a-z]{16}$') { $n } else { '' } }
+  # 홈택스 '매출전자세금계산서목록'(.xls): 머리글 줄 '작성일자·승인번호…', 공급자·공급받는자 칸 이름이 겹쳐서(상호·종사업장번호) 몇 번째인지로 찾음
+  function LoadHometax($path) { $hb = $xl.Workbooks.Open($path, 0, $true); $hv = $hb.Worksheets.Item(1).UsedRange.Value2; $hb.Close($false)
+    $nr = $hv.GetLength(0); $nc = $hv.GetLength(1); $hr0 = 0
+    for ($r = 1; $r -le [Math]::Min($nr, 30); $r++) { if ((NormHead $hv[$r, 1]) -eq '작성일자' -and (NormHead $hv[$r, 2]) -eq '승인번호') { $hr0 = $r; break } }
+    if (-not $hr0) { return $null }
+    $occ = @{}; $hc = @{}; for ($c = 1; $c -le $nc; $c++) { $h = NormHead $hv[$hr0, $c]; if (-not $h) { continue }; $occ[$h] = [int]$occ[$h] + 1; $hc["$h#$($occ[$h])"] = $c }
+    $list = @()
+    for ($r = $hr0 + 1; $r -le $nr; $r++) { $d0 = ToDate $hv[$r, $hc['작성일자#1']] ''; if (-not $d0 -or $d0.Year -ne $Y -or $d0.Month -ne $M) { continue }
+      $jong = "$($hv[$r, $hc['종사업장번호#1']])".Trim()
+      $list += [pscustomobject]@{ 작성일 = $d0; 사업장코드 = $JongMap[$jong]; 사업장 = $(if ($jong) { "종사업장 $jong" } else { '본점' }); 거래처코드 = ''; 거래처명 = "$($hv[$r, $hc['상호#2']])".Trim()
+        공급가액 = [double](NumV $hv[$r, $hc['공급가액#1']]); 세액 = [double](NumV $hv[$r, $hc['세액#1']]); 승인번호 = ("$($hv[$r, $hc['승인번호#1']])" -replace '-', '').Trim().ToLower()
+        전표 = ''; 비고 = "$($hv[$r, $hc['비고#1']])"; 품목 = "$($hv[$r, $hc['품목명#1']])"; 분류 = "$($hv[$r, $hc['전자세금계산서분류#1']])"; 씀 = $false } }
+    , $list }
+  # 아마란스 세금계산서 목록(acb2050…xlsx): 1행 머리글, 구분 '매출'
+  function LoadAcb($path) { $tb = $xl.Workbooks.Open($path, 0, $true); $tv = $tb.Worksheets.Item(1).UsedRange.Value2; $tb.Close($false)
     $tc = @{}; for ($c = 1; $c -le $tv.GetLength(1); $c++) { $tc[(NormHead $tv[1, $c])] = $c }
+    if (-not $tc.ContainsKey('승인번호') -or -not $tc.ContainsKey('구분')) { return $null }
+    $list = @()
     for ($r = 2; $r -le $tv.GetLength(0); $r++) { if ("$($tv[$r,$tc['구분']])" -ne '매출') { continue }
       $d0 = ToDate $tv[$r, $tc['작성일']] ''; if (-not $d0 -or $d0.Year -ne $Y -or $d0.Month -ne $M) { continue }
-      $t = [pscustomobject]@{ 작성일 = $d0; 사업장 = "$($tv[$r,$tc['사업장']])"; 거래처코드 = "$($tv[$r,$tc['거래처코드']])"; 거래처명 = "$($tv[$r,$tc['거래처명']])"; 공급가액 = [double](NumV $tv[$r, $tc['공급가액']]); 세액 = [double](NumV $tv[$r, $tc['세액']]); 승인번호 = "$($tv[$r,$tc['승인번호']])".Trim().ToLower(); 전표 = "$($tv[$r,$tc['전표여부']])"; 비고 = "$($tv[$r,$tc['비고']])"; 품목 = "$($tv[$r,$tc['대표품목']])"; 씀 = $false }
-      $TAX += $t; if ($t.승인번호) { $TAXBY[$t.승인번호] = $t } }
-    Say "  세금계산서 목록(이번 달 작성, 매출): $($TAX.Count)장" }
-  function IssNo($no) { $n = ("$no" -replace '-', '').ToLower(); if ($n -match '^\d{8}[0-9a-z]{16}$') { $n } else { '' } }
+      $sn = "$($tv[$r,$tc['사업장']])"
+      $list += [pscustomobject]@{ 작성일 = $d0; 사업장코드 = $SITEN[($sn -replace '\s', '')]; 사업장 = $sn; 거래처코드 = "$($tv[$r,$tc['거래처코드']])"; 거래처명 = "$($tv[$r,$tc['거래처명']])"; 공급가액 = [double](NumV $tv[$r, $tc['공급가액']]); 세액 = [double](NumV $tv[$r, $tc['세액']]); 승인번호 = "$($tv[$r,$tc['승인번호']])".Trim().ToLower(); 전표 = "$($tv[$r,$tc['전표여부']])"; 비고 = "$($tv[$r,$tc['비고']])"; 품목 = "$($tv[$r,$tc['대표품목']])"; 분류 = ''; 씀 = $false } }
+    , $list }
+  # 홈택스 목록에는 거래처코드가 없어 이름으로 맞춤: ㈜·주식회사·띄어쓰기를 뺀 이름이 같거나 한쪽이 다른 쪽을 품으면 같은 거래처
+  function NameHit($name, $st) { $a = NormKey $name; if (-not $a -or -not $st) { return $false }
+    foreach ($b0 in @($st.거래처명, $st.키, $st.마감키)) { $b = NormKey $b0; if (-not $b) { continue }; if ($a -eq $b) { return $true }; if ($a.Length -ge 3 -and $b.Length -ge 3 -and ($a.Contains($b) -or $b.Contains($a))) { return $true } }; $false }
+  function TaxHit($t, $st) { if (-not $st) { return $false }; if ($t.거래처코드) { return ($t.거래처코드 -eq $st.거래처코드) }; NameHit $t.거래처명 $st }
+  $TAX = @(); $TAXBY = @{}; $TaxFile = $null; $taxKind = ''
+  foreach ($cf in $taxCands) { $lst = $null; $kind = ''
+    try { if ($cf -like '*.xls' -or $cf -like '*전자세금계산서목록*') { $lst = LoadHometax $cf; $kind = '홈택스' }; if ($null -eq $lst) { $lst = LoadAcb $cf; $kind = '아마란스' } } catch { Chk '알림' '' "세금계산서 목록 '$([IO.Path]::GetFileName($cf))'을 읽지 못했습니다: $($_.Exception.Message)" }
+    if ($lst -and @($lst).Count) { $TAX = @($lst); $TaxFile = $cf; $taxKind = $kind; break } }
+  foreach ($t in $TAX) { if ($t.승인번호) { $TAXBY[$t.승인번호] = $t } }
+  if ($TaxFile) { Say "  세금계산서 목록($taxKind): $([IO.Path]::GetFileName($TaxFile)) — 이번 달 작성 매출 $($TAX.Count)장" } else { Say "  세금계산서 목록: 없음(세액은 계산)"; Chk '알림' '' "이번 달 세금계산서 목록(홈택스 '매출전자세금계산서목록' 또는 아마란스 acb2050…)이 없어 세액은 계산값, 날짜는 매출마감 확정 BL 칸으로 넣었습니다. 목록을 국내자동전표 폴더에 넣고 다시 만들면 실제 값으로 맞춥니다." }
+  # 홈택스 매출 합계표('매출명세서목록')가 있으면 목록이 빠짐없이 받아졌는지 확인
+  if ($taxKind -eq '홈택스') { foreach ($sf in $sumCands) { try { $sb = $xl.Workbooks.Open($sf, 0, $true); $sv = $sb.Worksheets.Item(1).UsedRange.Value2; $sb.Close($false)
+        $period = ''; for ($c = 1; $c -le $sv.GetLength(1); $c++) { if ("$($sv[1,$c])" -match '\d{4}-\d{2}-\d{2}\s*~') { $period = "$($sv[1,$c])" } }
+        if ($period -notlike "$($cur.ToString('yyyy-MM'))-01*") { continue }
+        for ($r = 1; $r -le $sv.GetLength(0); $r++) { if ((NormHead $sv[$r, 1]) -eq '합계') { $cnt = NumV $sv[$r, 3]; $sup = NumV $sv[$r, 4]; $tsum = 0.0; foreach ($t in $TAX) { $tsum += $t.공급가액 }
+            if ($cnt -eq $TAX.Count -and [Math]::Abs($sup - $tsum) -lt 1) { Chk '참고' '' "홈택스 매출 합계표($([IO.Path]::GetFileName($sf)))와 전자세금계산서 목록이 맞습니다: $($cnt)장, 공급가액 $('{0:N0}' -f $sup)원." }
+            else { Chk '확인' '' "홈택스 매출 합계표는 $($cnt)장 $('{0:N0}' -f $sup)원인데 전자세금계산서 목록은 $($TAX.Count)장 $('{0:N0}' -f $tsum)원입니다. 목록을 다시 받아 주세요." }
+            break } }
+        break } catch { } } }
   $setOfI = @{}; foreach ($iv in $INVS) { $st = $BYMG[$iv.키]; if (-not $st) { $st = $CUST[$iv.키] }; $setOfI[$iv.번호 + '|' + $iv.키] = $st }
-  # 짝: ① 승인번호가 같고 공급가액도 같음 → ② 같은 거래처코드·같은 공급가액·같은 날짜 → ③ 같은 거래처코드·같은 공급가액(이번 달 안에서 하나뿐)
+  # 짝: ① 승인번호가 같고 공급가액도 같음 → ② 같은 거래처·같은 공급가액·같은 날짜 → ③ 같은 거래처·같은 공급가액(이번 달 안에서 하나뿐)
   #  9월 예: 엘에스엠트론 BL 칸 9/20이지만 실제 세금계산서 9/30, 브이텍스 매출마감 번호는 수정 전(오류발행) 세금계산서 번호
+  #  10월 예: 일강은 매출마감에 번호·날짜가 없음, 디엔솔루션즈는 번호가 '2016…'으로 잘못 적힘 → 목록에서 금액·거래처로 찾음
   if ($TAX.Count) { foreach ($iv in $INVS) { $st = $setOfI[$iv.번호 + '|' + $iv.키]; $iss = IssNo $iv.번호; $tx = $null; $wrongNo = $null
       if ($iss -and $TAXBY.ContainsKey($iss)) { if ([Math]::Abs($TAXBY[$iss].공급가액 - $iv.금액) -lt 0.5) { $tx = $TAXBY[$iss] } else { $wrongNo = $TAXBY[$iss] } }
       if ($tx -and $tx.씀) { $tx = $null }
-      if (-not $tx -and $st) { $cand = @($TAX | Where-Object { -not $_.씀 -and $_.거래처코드 -eq $st.거래처코드 -and [Math]::Abs($_.공급가액 - $iv.금액) -lt 0.5 })
+      $byNo = [bool]$tx
+      if (-not $tx -and $st) { $cand = @($TAX | Where-Object { -not $_.씀 -and [Math]::Abs($_.공급가액 - $iv.금액) -lt 0.5 -and (TaxHit $_ $st) })
         $same = @($cand | Where-Object { $iv.날짜 -and $_.작성일 -eq $iv.날짜 }); if ($same.Count) { $tx = $same[0] } elseif ($cand.Count -eq 1) { $tx = $cand[0] } }
       if ($tx) { $tx.씀 = $true; $iv.tx = $tx
         if ($wrongNo) { Chk '확인' $iv.이름 "매출마감 확정의 세금계산서 번호 $($iv.번호)는 세금계산서 목록에서 공급가액 $('{0:N0}' -f $wrongNo.공급가액)원짜리(수정 전 번호로 보임)입니다. 금액이 같은 세금계산서(승인번호 $($tx.승인번호))로 넣었습니다." }
+        elseif (-not $byNo -and $iv.번호) { Chk '알림' $iv.이름 "매출마감 확정의 세금계산서 번호 '$($iv.번호)'가 목록에 없어(오타로 보임) 금액·거래처가 같은 세금계산서(승인번호 $($tx.승인번호), $($tx.작성일.ToString('yyyy-MM-dd')))로 넣었습니다." }
+        elseif (-not $byNo) { Chk '참고' $iv.이름 "매출마감 확정에 세금계산서 번호가 없어 목록에서 금액·거래처로 찾았습니다(승인번호 $($tx.승인번호), $($tx.작성일.ToString('yyyy-MM-dd')), $('{0:N0}' -f $iv.금액)원)." }
         if ($iv.날짜 -and $tx.작성일 -ne $iv.날짜) { Chk '확인' $iv.이름 "매출마감 확정 BL 칸 날짜는 $($iv.날짜.ToString('yyyy-MM-dd'))인데 세금계산서 목록 작성일은 $($tx.작성일.ToString('yyyy-MM-dd'))입니다. 세금계산서 작성일로 넣었습니다($('{0:N0}' -f $iv.금액)원)." }
         $iv.날짜 = $tx.작성일 }
       elseif ($wrongNo) { Chk '확인' $iv.이름 "매출마감 확정의 세금계산서 번호 $($iv.번호)는 세금계산서 목록에서 공급가액 $('{0:N0}' -f $wrongNo.공급가액)원짜리인데 매출마감은 $('{0:N0}' -f $iv.금액)원입니다. 번호를 확인해 주세요." } } }
@@ -189,7 +226,9 @@ try {
       $iss = IssNo $iv.번호; $tx = $iv.tx
       $site = $st.부가세사업장; $taxSrc = ''
       if ($tx) { $vat = $tx.세액; $taxSrc = '세금계산서 목록'
-        $tsite = $SITEN[($tx.사업장 -replace '\s', '')]; if ($tsite -and $tsite -ne $site) { Chk '확인' $who "세금계산서 목록의 공급자 사업장은 '$($tx.사업장)'($tsite)인데 설정표는 $site 입니다. 세금계산서 목록대로 $tsite 로 넣었습니다."; $site = $tsite }
+        $tsite = $tx.사업장코드
+        if (-not $tsite) { Chk '확인' $who "세금계산서 목록의 공급자 사업장 '$($tx.사업장)'이 어느 아마란스 사업장인지 몰라 설정표 값 $site 로 넣었습니다(종사업장 번호면 스크립트의 종사업장 표에 추가)." }
+        elseif ($tsite -ne $site) { Chk '확인' $who "세금계산서 목록의 공급자 사업장은 '$($tx.사업장)'($tsite)인데 설정표는 $site 입니다. 세금계산서 목록대로 $tsite 로 넣었습니다."; $site = $tsite }
         if ($tx.거래처코드 -and $tx.거래처코드 -ne $st.거래처코드) { Chk '확인' $who "세금계산서 목록의 거래처코드($($tx.거래처코드))와 설정표($($st.거래처코드))가 다릅니다." }
         if ($tx.승인번호) { $iss = $tx.승인번호 } }
       else { $vat = [Math]::Floor($iv.금액 / 10 + 1e-9); $taxSrc = '계산(10% 원 미만 버림)'
@@ -215,12 +254,15 @@ try {
   $lSum = ($LROWS | Measure-Object 합계 -Sum).Sum; $iSum = ($INVS | Measure-Object 금액 -Sum).Sum; $vSum = ($VCH | Measure-Object 공급가액 -Sum).Sum
   Chk '참고' '' "공급가액 합계: 전표 $('{0:N0}' -f $vSum)원 / 라인별 매출확정(신코·코마츠 제외) $('{0:N0}' -f $lSum)원 / 매출마감 확정 세금계산서(신코·코마츠 제외) $('{0:N0}' -f $iSum)원 → 차이 $('{0:N0}' -f ($vSum - $iSum))원"
   # 세금계산서 목록에만 있는 것
-  foreach ($t in ($TAX | Where-Object { -not $_.씀 })) { $known = @($CUST.Values | Where-Object { $_.거래처코드 -eq $t.거래처코드 }).Count -gt 0
+  $onlySum = 0.0
+  foreach ($t in ($TAX | Where-Object { -not $_.씀 })) { $onlySum += $t.공급가액; $known = @($CUST.Values | Where-Object { TaxHit $t $_ }).Count -gt 0
     if ("$($t.품목) $($t.비고)" -match '외주가공|임대|임차|고철|스크랩|매각|차량') { $known = $false }   # 같은 거래처라도 제품 매출이 아닌 것(예: 알멕 외주가공비 = 마산6)
-    $desc = "$($t.작성일.ToString('MM-dd')) $($t.거래처명) 공급가액 $('{0:N0}' -f $t.공급가액) (품목 $($t.품목)$(if ($t.비고) { ", $($t.비고)" }), 아마란스 전표: $($t.전표))"
+    $desc = "$($t.작성일.ToString('MM-dd')) $($t.거래처명) 공급가액 $('{0:N0}' -f $t.공급가액) ($(if ($t.분류) { "$($t.분류), " })품목 $($t.품목)$(if ($t.비고) { ", $($t.비고)" })$(if ($t.전표) { ", 아마란스 전표: $($t.전표)" }))"
     if ($known) { Chk '알림' $t.거래처명 "아마란스 세금계산서 목록에는 있는데 매출마감 확정에 없어 전표를 만들지 않았습니다: $desc. 수정세금계산서(발행·취소)이면 9월 브이텍스처럼 따로 넣어 주세요." }
     else { Chk '참고' $t.거래처명 "제품 매출이 아닌 세금계산서(고철·스크랩·아트라스 등, 손으로 넣는 것)라 이 전표에서 뺐습니다: $desc" } }
 
+  if ($TAX.Count) { $tAll = 0.0; foreach ($t in $TAX) { $tAll += $t.공급가액 }; $tUsed = 0.0; foreach ($t in ($TAX | Where-Object { $_.씀 })) { $tUsed += $t.공급가액 }
+    Chk '참고' '' "세금계산서 목록 $($TAX.Count)장 공급가액 $('{0:N0}' -f $tAll)원 = 이 자동전표 $(@($TAX | Where-Object { $_.씀 }).Count)장 $('{0:N0}' -f $tUsed)원 + 목록에만 있는 것(손 전표·수정세금계산서 등) $(@($TAX | Where-Object { -not $_.씀 }).Count)장 $('{0:N0}' -f $onlySum)원 → 차이 $('{0:N0}' -f ($tAll - $tUsed - $onlySum))원" }
   $LINES = @($LINES | Sort-Object 순서, 작성일자, 작성번호, 라인순번); $VCH = @($VCH | Sort-Object 순서, 작성일자, 작성번호)
   $LINES | Select-Object * -ExcludeProperty 묶음 | Export-Csv (Join-Path $OutDir "국내매출_자동전표_$($YM)_줄.csv") -NoTypeInformation -Encoding UTF8
   Say "  전표 $($VCH.Count)장, $($LINES.Count)줄, 공급가액 $('{0:N0}' -f $vSum) / 세액 $('{0:N0}' -f (($VCH | Measure-Object 세액 -Sum).Sum)) / 외상매출금 $('{0:N0}' -f (($VCH | Measure-Object 합계 -Sum).Sum))" 'Green'
@@ -292,8 +334,9 @@ try {
   $s2 = $wb.Worksheets.Item(2); $s2.Name = '확인할 것'
   if ($CHK.Count) { $ord = @{ '에러' = 0; '확인' = 1; '알림' = 2; '참고' = 3 }; FillSheet $s2 @('구분', '거래처', '내용') @($CHK | Sort-Object { $ord[$_.구분] }, 순) @('구분', '거래처', '내용'); $s2.Columns('C').ColumnWidth = 140; $s2.Columns('C').WrapText = $true } else { $s2.Range('A1').Value2 = '확인할 것 없음' }
   $s3 = $wb.Worksheets.Item(3); $s3.Name = '세금계산서 목록 대조'
-  if ($TAX.Count) { $trow = $TAX | Sort-Object 작성일 | ForEach-Object { [pscustomobject]@{ 작성일 = $_.작성일.ToString('yyyy-MM-dd'); 사업장 = $_.사업장; 거래처코드 = $_.거래처코드; 거래처명 = $_.거래처명; 공급가액 = $_.공급가액; 세액 = $_.세액; 승인번호 = $_.승인번호; 품목 = $_.품목; 비고 = $_.비고; 아마란스전표 = $_.전표; 이번자동전표 = $(if ($_.씀) { '넣음' } else { '안 넣음' }) } }
-    FillSheet $s3 @('작성일', '공급자 사업장', '거래처코드', '거래처명', '공급가액', '세액', '승인번호', '대표품목', '비고', '아마란스 전표', '이번 자동전표') @($trow) @('작성일', '사업장', '거래처코드', '거래처명', '공급가액', '세액', '승인번호', '품목', '비고', '아마란스전표', '이번자동전표'); $s3.Range('E:F').NumberFormat = '#,##0' } else { $s3.Range('A1').Value2 = '세금계산서 목록 파일 없음' }
+  if ($TAX.Count) { $trow = $TAX | Sort-Object 작성일 | ForEach-Object { [pscustomobject]@{ 작성일 = $_.작성일.ToString('yyyy-MM-dd'); 사업장 = "$($_.사업장)$(if ($_.사업장코드) { " ($($_.사업장코드))" })"; 거래처코드 = $_.거래처코드; 거래처명 = $_.거래처명; 공급가액 = $_.공급가액; 세액 = $_.세액; 승인번호 = $_.승인번호; 분류 = $_.분류; 품목 = $_.품목; 비고 = $_.비고; 아마란스전표 = $_.전표; 이번자동전표 = $(if ($_.씀) { '넣음' } else { '안 넣음' }) } }
+    FillSheet $s3 @('작성일', '공급자 사업장', '거래처코드', '거래처명', '공급가액', '세액', '승인번호', '분류', '대표품목', '비고', '아마란스 전표', '이번 자동전표') @($trow) @('작성일', '사업장', '거래처코드', '거래처명', '공급가액', '세액', '승인번호', '분류', '품목', '비고', '아마란스전표', '이번자동전표'); $s3.Range('E:F').NumberFormat = '#,##0'
+    $s3.Range('A1').Offset(@($trow).Count + 2, 0).Value2 = "출처: $([IO.Path]::GetFileName($TaxFile)) ($taxKind)" } else { $s3.Range('A1').Value2 = '세금계산서 목록 파일 없음' }
   $s4 = $wb.Worksheets.Item(4); $s4.Name = '실제 전표 대조'
   if ($CMP.Count) { FillSheet $s4 @('거래처', '만든 전표', '실제 전표', '결과', '내용') @($CMP) @('거래처', '만든전표', '실제전표', '결과', '내용') } else { $s4.Range('A1').Value2 = '대조 안 함' }
   $s1.Activate(); $wb.SaveAs($review, 51); $wb.Close($false)
