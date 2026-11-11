@@ -142,12 +142,12 @@ try {
     foreach ($kk in $parts.Keys) { $ln++
       $proj = if ($kk -eq '금형' -or $kk -eq '금형스크랩') { $cu.금형프로젝트 } elseif ($kk -eq '사형스크랩') { '101' } else { $projFor[$kk] }
       $nm = switch ($kk) { '사형' { $cu.사형이름 } '금형' { $cu.금형이름 } '사형스크랩' { $cu.사형이름 + '스크랩' } '금형스크랩' { $cu.금형이름 + '스크랩' } default { $kk } }
-      $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 4; 계정과목 = 4140000; 거래처 = $cu.거래처코드; 거래처명 = $cu.거래처명; 계정금액 = [double]$parts[$kk]; 증빙코드 = ''; 적요 = "$base -$nm"; 부가세사업장 = ''; 세무구분 = ''; 공급가액 = $null; 환종 = ''; 외화금액 = $null; 환율 = $null; 수출신고번호 = ''; 프로젝트 = "$proj"; 관리환율 = $rtT; 관리외화 = [double]$fxParts[$kk]; 관리세무 = $TaxType; 통화 = $cu.통화; 인보이스 = $x.인보이스 }) | Out-Null }
+      $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 4; 계정과목 = 4140000; 거래처 = $cu.거래처코드; 거래처명 = $cu.거래처명; 계정금액 = [double]$parts[$kk]; 증빙코드 = ''; 적요 = "$base -$nm"; 부가세사업장 = ''; 세무구분 = ''; 공급가액 = $null; 환종 = ''; 외화금액 = $null; 환율 = $null; 수출신고번호 = ''; 프로젝트 = "$proj"; 관리환율 = $rtT; 관리외화 = [double]$fxParts[$kk]; 관리세무 = $TaxType; 통화 = $cu.통화; 품의내역 = $base; 전표유형 = '3'; 관리환종 = $cu.통화; 인보이스 = $x.인보이스 }) | Out-Null }
     # 원화수출(BERGEN): 부가세 줄 환종 KRW, 외화금액 = 원화, 환율 1 — 사용자 확인 완료 2026-11-11
     $ln++; $cur2 = $cu.통화
-    $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 4; 계정과목 = 2550000; 거래처 = $cu.거래처코드; 거래처명 = $cu.거래처명; 계정금액 = [double]0; 증빙코드 = ''; 적요 = $base; 부가세사업장 = $(if ($siteRow) { $siteRow.부가세사업장코드 } else { '' }); 세무구분 = $TaxType; 공급가액 = [double]$krw; 환종 = $cur2; 외화금액 = $(if ($cur2 -eq 'KRW') { [double]$krw } else { [double]$x.외화 }); 환율 = $(if ($cur2 -eq 'KRW') { [double]1 } elseif ($cur2 -eq 'JPY') { [double]$jpy100 } else { [double]$x.환율 }); 수출신고번호 = $ctNo; 프로젝트 = ''; 관리환율 = $rtT; 관리외화 = $fxTot; 관리세무 = $TaxType; 통화 = $cu.통화; 인보이스 = $x.인보이스 }) | Out-Null
+    $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 4; 계정과목 = 2550000; 거래처 = $cu.거래처코드; 거래처명 = $cu.거래처명; 계정금액 = [double]0; 증빙코드 = ''; 적요 = $base; 부가세사업장 = $(if ($siteRow) { $siteRow.부가세사업장코드 } else { '' }); 세무구분 = $TaxType; 공급가액 = [double]$krw; 환종 = $cur2; 외화금액 = $(if ($cur2 -eq 'KRW') { [double]$krw } else { [double]$x.외화 }); 환율 = $(if ($cur2 -eq 'KRW') { [double]1 } elseif ($cur2 -eq 'JPY') { [double]$jpy100 } else { [double]$x.환율 }); 수출신고번호 = $ctNo; 신고기준일 = $d8; 프로젝트 = ''; 관리환율 = $rtT; 관리외화 = $fxTot; 관리세무 = $TaxType; 통화 = $cu.통화; 품의내역 = $base; 전표유형 = '3'; 관리환종 = $cu.통화; 인보이스 = $x.인보이스 }) | Out-Null
     $ln++
-    $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 3; 계정과목 = 1080000; 거래처 = $cu.거래처코드; 거래처명 = $cu.거래처명; 계정금액 = [double]$krw; 증빙코드 = '9'; 적요 = $base; 부가세사업장 = ''; 세무구분 = ''; 공급가액 = $null; 환종 = ''; 외화금액 = $null; 환율 = $null; 수출신고번호 = ''; 프로젝트 = ''; 관리환율 = $rtT; 관리외화 = $fxTot; 관리세무 = $TaxType; 통화 = $cu.통화; 인보이스 = $x.인보이스 }) | Out-Null
+    $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 3; 계정과목 = 1080000; 거래처 = $cu.거래처코드; 거래처명 = $cu.거래처명; 계정금액 = [double]$krw; 증빙코드 = '9'; 적요 = $base; 부가세사업장 = ''; 세무구분 = ''; 공급가액 = $null; 환종 = ''; 외화금액 = $null; 환율 = $null; 수출신고번호 = ''; 프로젝트 = ''; 관리환율 = $rtT; 관리외화 = $fxTot; 관리세무 = $TaxType; 통화 = $cu.통화; 품의내역 = $base; 전표유형 = '3'; 관리환종 = $cu.통화; 인보이스 = $x.인보이스 }) | Out-Null
     $VCH.Add([pscustomobject]@{ 작성일자 = $d8; 작성번호 = $no; 인보이스 = $x.인보이스; 거래처 = $cu.거래처명; 공장 = $x.공장; 부가세사업장 = $(if ($siteRow) { "$($siteRow.부가세사업장코드) $($siteRow.사업장명)" }); 원화 = $krw; 외화 = $x.외화; 환율 = $x.환율; 면장 = $ctNo
         라인 = (($parts.Keys | ForEach-Object { "$_ $('{0:N0}' -f $parts[$_])" }) -join ' / '); 라인출처 = $(if ($sp0) { "$($sp0.출처) '$($sp0.시트)' $($sp0.행)행" } else { '없음' }); 적요 = $base }) | Out-Null }
   $saleSum = ($SALES | Where-Object { $_.원화 } | Measure-Object 원화 -Sum).Sum; $vSum = ($VCH | Measure-Object 원화 -Sum).Sum
@@ -158,25 +158,43 @@ try {
   $LINES | Export-Csv (Join-Path $OutDir "해외매출_자동전표_$($YM)_줄.csv") -NoTypeInformation -Encoding UTF8
   Say "  전표 $($VCH.Count)장, $($LINES.Count)줄, 외상매출금 합계 $('{0:N0}' -f (($VCH | Measure-Object 원화 -Sum).Sum))" 'Green'
 
-  # ── ④ 업로드 엑셀 (양식 그대로, 4행부터) ──
+  # ── ④ 업로드 엑셀 (아마란스 '자동전표처리(일반)' 전체 칸 양식, 4행부터) ──
+  #  칸 위치가 아니라 2행의 칸 코드(IN_DIV_CD 등)를 보고 넣음 → 양식 칸 순서가 바뀌어도 맞음. 3행 설명이 '타입 : 문자'인 칸은 텍스트로 (2026-11-11)
+  #  2026-11-11 추가: ISS_DT 부가세신고기준일(없으면 매출부가세정보가 안 생김), DOCU_TY 전표유형 3 매출, ISU_DOC 품의내역, EXCH_CD 관리항목 환종
   $upload = Join-Path $OutDir "해외매출_자동전표_$($YM).xlsx"
-  Copy-Item -LiteralPath $template $upload -Force
-  $wb = $xl.Workbooks.Open($upload); $sh = $wb.Worksheets.Item(1)
-  $props = '회계단위', '작성일자', '작성번호', '라인순번', '차대구분', '계정과목', '거래처', '거래처명', '계정금액', '증빙코드', '적요', '부가세사업장', '세무구분', '공급가액', '환종', '외화금액', '환율', '수출신고번호', '프로젝트', '관리환율', '관리외화', '관리세무'
-  $textCols = @(1, 2, 7, 8, 10, 11, 12, 13, 15, 18, 19, 22)
+  # 작업 폴더 임시 파일에서 만들고(양식 열기 → 다른 이름으로 저장), 데이터가 저장된 것을 확인한 뒤 제자리로 옮김 (2026-11-11)
+  #  이유: 아마란스에서 받은 양식('인터넷에서 받은 파일' 표시)과 회사 보안 프로그램(ONECHAMBER) 때문에, 결과 파일 자리에서 엑셀로 저장하면
+  #        읽기 전용이 되거나 저장이 조용히 안 되는 일이 있었음 (더블클릭으로 연 적 있는 경로)
+  $tmpUp = Join-Path $workDir "만드는중_업로드_$(Get-Date -Format 'HHmmss').xlsx"
+  if (Test-Path -LiteralPath $tmpUp) { Remove-Item -LiteralPath $tmpUp -Force }
+  $wb = $xl.Workbooks.Open($template, 0, $true); $wb.SaveAs($tmpUp, 51)
+  if ($wb.ReadOnly) { $wb.Close($false); throw "업로드 임시 파일을 쓰기 가능한 상태로 만들지 못했습니다: $tmpUp" }
+  $sh = $wb.Worksheets.Item(1)
+  $maxC = $sh.Cells(2, $sh.Columns.Count).End(-4159).Column
+  $colOf = @{}; $isText = @{}
+  for ($ci2 = 1; $ci2 -le $maxC; $ci2++) { $cd = "$($sh.Cells(2, $ci2).Value2)".Trim(); if ($cd -and -not $colOf.ContainsKey($cd)) { $colOf[$cd] = $ci2; $isText[$ci2] = ("$($sh.Cells(3, $ci2).Value2)" -match '타입\s*:\s*문자') } }
+  $codeMap = [ordered]@{ IN_DIV_CD = '회계단위'; MENU_DT = '작성일자'; MENU_SQ = '작성번호'; MENU_LN_SQ = '라인순번'; ISU_DOC = '품의내역'; DOCU_TY = '전표유형'; DRCR_FG = '차대구분'; ACCT_CD = '계정과목'; TR_CD = '거래처'; TR_NM = '거래처명'; ACCT_AM = '계정금액'; ATTR_CD = '증빙코드'; RMK_DC = '적요'
+    VAT_DIV_CD = '부가세사업장'; ISS_DT = '신고기준일'; TAX_FG = '세무구분'; SUP_AM = '공급가액'; DUMMY1 = '환종'; CASH_AM = '외화금액'; BILL_AM = '환율'; CT_NB = '수출신고번호'; PJT_CD = '프로젝트'
+    EXCH_RT = '관리환율'; FORE_AM = '관리외화'; CT_DEAL = '관리세무'; EXCH_CD = '관리환종' }
+  foreach ($cd in $codeMap.Keys) { if (-not $colOf.ContainsKey($cd)) { Chk $(if ($cd -in 'ISS_DT', 'VAT_DIV_CD', 'TAX_FG', 'SUP_AM') { '에러' } else { '확인' }) '' "업로드 양식에 '$cd' 칸이 없어 '$($codeMap[$cd])' 값을 넣지 못했습니다. 아마란스에서 받은 전체 칸 양식을 '해외자동전표\자동전표처리(일반) 양식.xlsx'로 넣어 주세요." } }
   $n = $LINES.Count
   if ($n) {
-    foreach ($c in $textCols) { $sh.Range($sh.Cells(4, $c), $sh.Cells(3 + $n, $c)).NumberFormat = '@' }
-    $data = New-Object 'object[,]' $n, 22
-    for ($i = 0; $i -lt $n; $i++) { $l = $LINES[$i]; for ($c = 0; $c -lt $props.Count; $c++) { $val = $l.($props[$c]); if ($null -eq $val -or "$val" -eq '') { continue }
-        if ($textCols -contains ($c + 1)) { $data.SetValue([object][string]$val, [int]$i, [int]$c) } else { $data.SetValue([object][double]$val, [int]$i, [int]$c) } } }
-    $sh.Range($sh.Cells(4, 1), $sh.Cells(3 + $n, 22)).Value2 = $data
-    # 보기 좋게 쉼표 표시 (값은 숫자 그대로): 계정금액·공급가액 원 단위, 외화금액(P·U) 소수 둘째, 환율(Q·T) 소수 둘째~넷째 (사용자 지정 2026-11-11)
-    foreach ($fmt in @(@(9, '#,##0'), @(14, '#,##0'), @(16, '#,##0.00'), @(21, '#,##0.00'), @(17, '#,##0.00##'), @(20, '#,##0.00##'))) { $sh.Range($sh.Cells(4, $fmt[0]), $sh.Cells(3 + $n, $fmt[0])).NumberFormat = $fmt[1] }
-    # 엔화·원화 줄은 외화금액(P·U)을 소수 없이 (달러만 소수 둘째 자리) — 사용자 지정 2026-11-11
-    for ($i = 0; $i -lt $n; $i++) { if ($LINES[$i].통화 -eq 'JPY' -or $LINES[$i].통화 -eq 'KRW') { foreach ($cc in 16, 21) { $sh.Cells(4 + $i, $cc).NumberFormat = '#,##0' } } } }
+    foreach ($cd in $codeMap.Keys) { if ($colOf.ContainsKey($cd) -and $isText[$colOf[$cd]]) { $sh.Range($sh.Cells(4, $colOf[$cd]), $sh.Cells(3 + $n, $colOf[$cd])).NumberFormat = '@' } }
+    $data = New-Object 'object[,]' $n, $maxC
+    for ($i = 0; $i -lt $n; $i++) { $l = $LINES[$i]
+      foreach ($cd in $codeMap.Keys) { if (-not $colOf.ContainsKey($cd)) { continue }; $val = $l.($codeMap[$cd]); if ($null -eq $val -or "$val" -eq '') { continue }; $cx = $colOf[$cd] - 1
+        if ($isText[$colOf[$cd]]) { $data.SetValue([object][string]$val, [int]$i, [int]$cx) } else { $data.SetValue([object][double]$val, [int]$i, [int]$cx) } } }
+    $sh.Range($sh.Cells(4, 1), $sh.Cells(3 + $n, $maxC)).Value2 = $data
+    # 쉼표 표시 (값은 숫자 그대로): 계정금액·공급가액 원 단위, 외화금액 소수 둘째(엔화·원화 줄은 소수 없음), 환율 소수 둘째~넷째 (사용자 지정 2026-11-11)
+    foreach ($fm in @(@('ACCT_AM', '#,##0'), @('SUP_AM', '#,##0'), @('CASH_AM', '#,##0.00'), @('FORE_AM', '#,##0.00'), @('BILL_AM', '#,##0.00##'), @('EXCH_RT', '#,##0.00##'))) { if ($colOf.ContainsKey($fm[0])) { $sh.Range($sh.Cells(4, $colOf[$fm[0]]), $sh.Cells(3 + $n, $colOf[$fm[0]])).NumberFormat = $fm[1] } }
+    for ($i = 0; $i -lt $n; $i++) { if ($LINES[$i].통화 -eq 'JPY' -or $LINES[$i].통화 -eq 'KRW') { foreach ($cd in 'CASH_AM', 'FORE_AM') { if ($colOf.ContainsKey($cd)) { $sh.Cells(4 + $i, $colOf[$cd]).NumberFormat = '#,##0' } } } } }
   $wb.Save(); $wb.Close($false)
-  Say "  업로드 파일: $upload" 'Green'
+  # 저장 확인: 임시 파일을 다시 열어 마지막 줄이 줄 수와 맞는지 본 뒤 제자리로 옮김
+  $wbC = $xl.Workbooks.Open($tmpUp, 0, $true); $lastC = $wbC.Worksheets.Item(1).Cells($wbC.Worksheets.Item(1).Rows.Count, 1).End(-4162).Row; $wbC.Close($false)
+  if ($lastC -ne 3 + $n) { throw "업로드 파일에 데이터가 제대로 저장되지 않았습니다(저장된 마지막 줄 $lastC, 있어야 할 줄 $(3 + $n)): $tmpUp" }
+  if (Test-Path -LiteralPath $upload) { try { Remove-Item -LiteralPath $upload -Force -ErrorAction Stop } catch { throw "업로드 파일을 바꿀 수 없습니다. 엑셀에서 열려 있으면 닫고 다시 해 주세요(새 파일은 $tmpUp 에 있음): $upload" } }
+  Move-Item -LiteralPath $tmpUp $upload -Force
+  Say "  업로드 파일: $upload ($($n)줄 저장 확인)" 'Green'
 
   # ── ⑤ 9월 실제 전표와 대조(시험용) ──
   $CMP = @()
