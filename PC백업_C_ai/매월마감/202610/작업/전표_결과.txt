@@ -1,4 +1,4 @@
 ﻿OK
 전표 84장, 346줄, 외상매출금 합계 5,656,353,981원
 확인할 것: 3건 (검토 파일 '확인할 것' 시트)
-업로드 파일: C:\ai\매월마감\해외자동전표\202610\해외매출_자동전표_202610.xlsx
+업로드 파일: C:\Users\user\AppData\Local\Temp\claude\d3df15a30ffc05d5\83b94f3d-3ab8-4109-b9d6-b6116b6fbffb\scratchpad\out202610\해외매출_자동전표_202610.xlsx
