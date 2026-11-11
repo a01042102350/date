@@ -2,9 +2,22 @@
 #  8) BL날짜/인보이스: 해외=9월라인, 국내=출고일(출하일), 신코·코마츠=PDF. 회계 기준으로 다르면 빨간색 + 사유 시트
 #  9) 면장별합계 + 면장별합계2 → 면장별합계 하나로 (신코·코마츠는 PDF 기준), 회계 기준 비교
 # 10) mes9월: E(환율) 뒤 '기초자료환율', 달러 뒤 '기초자료달러' 열 추가 (PDF / 9월라인 값)
-$base = "C:\ai\기초자료\202609"   # 월별 폴더: C:\ai\기초자료\YYYYMM (받은 자료 + mes + 결과 HTML + 백업\)
-$mesPath = "C:\ai\기초자료\202609\mes9월.xls"
-$backup = "C:\ai\기초자료\202609\백업\mes9월_백업_20261028.xls"
+# 2026-11-12: 달을 -YM 으로 받음 (예: -YM 202610). 없으면 기초자료 폴더 중 mesN월.xls가 있는 가장 최근 달.
+#   새 달은 먼저 월마감_준비.ps1 (MES 원본 → 환율·달러·면장·6칸) 실행 후 이 스크립트
+param([int]$YM = 0)
+if (-not $YM) { $YM = [int](@(Get-ChildItem 'C:\ai\기초자료' -Directory | ? { $_.Name -match '^\d{6}$' -and @(Get-ChildItem $_.FullName -File -Filter 'mes*월.xls' -ErrorAction SilentlyContinue).Count } | sort Name)[-1].Name) }
+$yy = [int][math]::Floor($YM / 100); $mm = [int]($YM % 100); $nx = $mm % 12 + 1; $mm2 = '{0:00}' -f $mm; $yy2 = '{0:00}' -f ($yy % 100)
+$mLab = "$($mm)월"; $nLab = "$($nx)월"; $lineName = "$($mm)월라인"; $sheetName = "mes$($mm)월"
+$nextOA = (New-Object DateTime $yy, $mm, 1).AddMonths(1).ToOADate()   # 다음 달 1일 (예전 46296 = 2026-10-01)
+$base = "C:\ai\기초자료\$YM"   # 월별 폴더: C:\ai\기초자료\YYYYMM (받은 자료 + mes + 결과 HTML + 백업\)
+$mesPath = "$base\mes$($mm)월.xls"
+$backup = "$base\백업\mes$($mm)월_백업_$(Get-Date -Format 'yyyyMMdd').xls"   # 하루 한 번(그날 처음 실행 전) 백업
+"== $YM 반영 ($mesPath)"
+if (-not (Test-Path $mesPath)) { throw "MES 파일이 없음: $mesPath" }
+try { $fs0 = [IO.File]::Open($mesPath, 'Open', 'ReadWrite', 'None'); $fs0.Close() } catch { throw "mes$($mm)월.xls가 엑셀에서 열려 있음 → 닫고 다시 실행해 주세요" }
+$fs0 = [IO.File]::OpenRead($mesPath); $hb = New-Object byte[] 64; [void]$fs0.Read($hb, 0, 64); $fs0.Close()
+if ([Text.Encoding]::ASCII.GetString($hb) -match '<html') { throw "mes$($mm)월.xls가 아직 MES 원본 그대로임 → 먼저 & `"C:\ai\도구\월마감_준비.ps1`" -YM $YM" }
+if (-not (Test-Path "$base\백업")) { New-Item -ItemType Directory "$base\백업" | Out-Null }
 function Num($x) { $d = 0.0; if ([double]::TryParse("$x", [ref]$d)) { $d } else { $null } }
 function K($x) { "$x".Trim() }
 function DS($n) { if ($n) { [DateTime]::FromOADate($n).ToString('yyyy-MM-dd') } else { '없음' } }
@@ -13,8 +26,8 @@ $RED = 255; $PINK = 13421823; $HEAD = 14277081
 
 if (-not (Test-Path $backup)) { Copy-Item $mesPath $backup }
 
-# PDF 매출내역서 판독값 (신코.pdf p1, js.pdf p1) — BL날짜는 각 B/L On board 일자와도 일치 확인
-$pdf = [ordered]@{
+# PDF 매출내역서 판독값 (신코.pdf p1, js.pdf p1) — BL날짜는 각 B/L On board 일자와도 일치 확인 (2026년 9월만. 10월부터는 매출내역서 엑셀만 읽음)
+$pdf9 = [ordered]@{
   'DSM2608-SK05' = @{ Bl = '2026-09-04'; Rate = 8.712;  Fc = 10855290; Mj = '41072-26-702348X'; File = '신코.pdf'; Split = @{ '사형' = 76647650;  '금형 주조' = 556083;   '가공3(3공장)' = 17367553 }; Scrap = @(0, 0) }
   'DSM2609-SK01' = @{ Bl = '2026-09-07'; Rate = 8.6766; Fc = 12227374; Mj = '41072-26-702439X'; File = '신코.pdf'; Split = @{ '사형' = 76451055;  '금형 주조' = 6245740;  '가공3(3공장)' = 22950962 }; Scrap = @(95130, 349146) }
   'DSM2609-SK02' = @{ Bl = '2026-09-14'; Rate = 8.7625; Fc = 19165174; Mj = '41072-26-702583X'; File = '신코.pdf'; Split = @{ '사형' = 112534504; '금형 주조' = 20506534; '가공3(3공장)' = 32965488 }; Scrap = @(1928311, 0) }
@@ -24,8 +37,9 @@ $pdf = [ordered]@{
   'DSM2609-JS02' = @{ Bl = '2026-09-23'; Rate = 8.6368; Fc = 7474920;  Mj = '41072-26-702629X'; File = 'js.pdf';   Split = @{ '사형' = 46026841;  '가공3(3공장)' = 18532548 }; Scrap = @(0, 0) }
   'DSM2609-JS03' = @{ Bl = '2026-09-30'; Rate = 8.6316; Fc = 5232444;  Mj = '41072-26-702700X'; File = 'js.pdf';   Split = @{ '사형' = 32199390;  '가공3(3공장)' = 12964973 }; Scrap = @(0, 0) }
 }
+$pdf = if ($YM -eq 202609) { $pdf9 } else { [ordered]@{} }
 $cats = @('사형', '자동', '금형 주조', '가공1(2공장)', '가공2(5공장)', '가공3(3공장)')
-$closeYM = 202609   # 마감 월
+$closeYM = $YM   # 마감 월
 
 # 16) 신코·코마츠 매출내역서 엑셀 (예: '9월신코, 코마츠 지출품의서마감.xlsx'): 탭이 색칠된 시트에서 '인보이스'·'엔화금액' 표를 '합계' 줄 전까지 읽음
 #     인보이스 앞 'NN-' = 월 (마감 월보다 크면 이월, 작으면 전월분). 엔화 소수점은 반올림(회계 기준), 소수점이 있으면 '알림'
@@ -34,8 +48,10 @@ function Read-SkJs($xl, $path, $ym) {
   $res = [ordered]@{}
   $wbX = $xl.Workbooks.Open($path, 0, $true)
   try {
-    foreach ($sh in @($wbX.Worksheets)) {
-      if ($sh.Tab.ColorIndex -eq -4142 -or $sh.Visible -ne -1) { continue }
+    # 'YYYYMM' 이름 시트(예: 신코202610·코마츠202610, 2026-10월부터 파일이 둘로 나뉨)가 있으면 그 시트만, 없으면 탭이 색칠된 시트
+    $shs = @(@($wbX.Worksheets) | ? { $_.Name -match "^(신코|코마츠)\s*$ym$" })
+    if (-not $shs.Count) { $shs = @(@($wbX.Worksheets) | ? { $_.Tab.ColorIndex -ne -4142 -and $_.Visible -eq -1 }) }
+    foreach ($sh in $shs) {
       $u = $sh.UsedRange; $nr = [math]::Min($u.Row + $u.Rows.Count - 1, 80); $ncx = [math]::Min($u.Column + $u.Columns.Count - 1, 60)
       $vv = $sh.Range($sh.Cells(1,1), $sh.Cells($nr,$ncx)).Value2
       $hr = $null; $col = @{}
@@ -63,28 +79,30 @@ function Read-SkJs($xl, $path, $ym) {
 $xl = New-Object -ComObject Excel.Application
 $xl.Visible = $false; $xl.DisplayAlerts = $false
 try {
-  $skOut = @{}; $skAlert = @(); $skSrc = 'PDF(눈으로 읽은 값)'
-  $skF = @(Get-ChildItem $base -File | ? { $_.Name -match '신코' -and $_.Extension -match '^\.xls' -and $_.Name -notmatch '^~\$' } | sort { if ($_.Name -match "^$($closeYM % 100)월") { 0 } else { 1 } }, Name) | select -First 1
-  if ($skF) {
-    $xr = Read-SkJs $xl $skF.FullName $closeYM
-    if ($xr.Count) {
-      foreach ($k in @($pdf.Keys)) { if (-not $xr.Contains($k)) { $skOut[$k] = "매출내역서 엑셀에 없음" } }   # 예: JS03 → 회계 회색이면 이월
-      $pdf = [ordered]@{}
-      foreach ($k in $xr.Keys) {
-        $x = $xr[$k]
-        if ($x.PrefixM -and $x.PrefixM -gt ($closeYM % 100)) { $skOut[$k] = "매출내역서 인보이스 앞 '$($x.PrefixM)-' → $($x.PrefixM)월 이월"; continue }
-        $pdf[$k] = $x; $pdf[$k].File = "$($skF.Name) [$($x.File)]"
-        if ($x.PrefixM -and $x.PrefixM -lt ($closeYM % 100)) { $pdf[$k].Prev = "$($x.PrefixM)월분" }
-        if ([math]::Abs($x.FcRaw - $x.Fc) -ge 0.005) { $skAlert += [pscustomobject]@{ Inv = $k; Raw = $x.FcRaw; Fc = $x.Fc; Rate = $x.Rate } }
-      }
-      $skSrc = "엑셀 $($skF.Name)"
+  $skOut = @{}; $skAlert = @(); $skSrc = if ($pdf.Count) { 'PDF(눈으로 읽은 값)' } else { '없음' }
+  # 신코·코마츠 매출내역서 엑셀: 9월은 한 파일('9월신코, 코마츠 지출품의서마감.xlsx'), 10월부터는 신코·코마츠 파일이 따로 → 모두 읽어 합침
+  $skFs = @(Get-ChildItem $base -File | ? { $_.Name -match '신코|코마츠' -and $_.Extension -match '^\.xls' -and $_.Name -notmatch '^~\$' } | sort { if ($_.Name -match "^$($closeYM % 100)월") { 0 } else { 1 } }, Name)
+  $xr = [ordered]@{}; $xrFile = @{}
+  foreach ($skF in $skFs) { $x1 = Read-SkJs $xl $skF.FullName $closeYM; foreach ($k in $x1.Keys) { if (-not $xr.Contains($k)) { $xr[$k] = $x1[$k]; $xrFile[$k] = $skF.Name } } }
+  if ($xr.Count) {
+    foreach ($k in @($pdf.Keys)) { if (-not $xr.Contains($k)) { $skOut[$k] = "매출내역서 엑셀에 없음" } }   # 예: JS03 → 회계 회색이면 이월
+    $pdf = [ordered]@{}
+    foreach ($k in $xr.Keys) {
+      $x = $xr[$k]
+      if ($x.PrefixM -and $x.PrefixM -gt ($closeYM % 100)) { $skOut[$k] = "매출내역서 인보이스 앞 '$($x.PrefixM)-' → $($x.PrefixM)월 이월"; continue }
+      $pdf[$k] = $x; $pdf[$k].File = "$($xrFile[$k]) [$($x.File)]"
+      if ($x.PrefixM -and $x.PrefixM -lt ($closeYM % 100)) { $pdf[$k].Prev = "$($x.PrefixM)월분" }
+      if ([math]::Abs($x.FcRaw - $x.Fc) -ge 0.005) { $skAlert += [pscustomobject]@{ Inv = $k; Raw = $x.FcRaw; Fc = $x.Fc; Rate = $x.Rate } }
     }
+    $skSrc = "엑셀 " + ((@($xrFile.Values | select -Unique)) -join ', ')
   }
   foreach ($k in $pdf.Keys) { $p = $pdf[$k]; $p.BlN = [DateTime]::Parse($p.Bl).ToOADate(); $p.Krw = ($p.Split.Values | measure -Sum).Sum + $p.Scrap[0] + $p.Scrap[1] }
   "신코·코마츠 기준: $skSrc / 읽은 인보이스 $($pdf.Count)건" + $(if ($skOut.Count) { " / 빠진 건: " + (($skOut.Keys | % { "$_($($skOut[$_]))" }) -join ', ') } else { '' }) + $(if ($skAlert.Count) { " / 엔화 소수점 알림: " + (($skAlert | % Inv) -join ', ') } else { '' })
-  # 9월라인: 인보이스별 bl 날짜·환율·달러·원화·6칸
+  # N월라인: 인보이스별 bl 날짜·환율·달러·원화·6칸
   $line = @{}
-  $wb = $xl.Workbooks.Open("$base\9월라인.xlsx", 0, $true)
+  $lineF = @(Get-ChildItem $base -File | ? { $_.Name -match "^$lineName" -and $_.Extension -match '^\.xls' -and $_.Name -notmatch '^~\$' })[0]
+  if (-not $lineF) { throw "$lineName 파일이 없음 ($base)" }
+  $wb = $xl.Workbooks.Open($lineF.FullName, 0, $true)
   foreach ($s in $wb.Worksheets) {
     $u = $s.UsedRange; $v = $u.Value2; $nr = $u.Rows.Count; $nc = $u.Columns.Count; $hr = $null; $col = @{}
     for ($i = 1; $i -le [Math]::Min($nr, 25) -and -not $hr; $i++) { for ($j = 1; $j -le $nc; $j++) { if ("$($v[$i,$j])".Trim() -eq '인보이스') { $hr = $i } } }
@@ -93,19 +111,26 @@ try {
     $blC = if ($col['bl날짜']) { $col['bl날짜'] } else { $col['전자세금계산서발행일'] }
     for ($i = $hr + 1; $i -le $nr; $i++) {
       $inv = K $v[$i,$col['인보이스']]; if (-not $inv -or $line.ContainsKey($inv)) { continue }
-      $sp = @{}; foreach ($c in $cats) { if ($col[$c]) { $sp[$c] = [double](Num $v[$i,$col[$c]]) } }
+      $sp = @{}; foreach ($c in $cats) { $cc0 = $col[($c -replace '\s', '')]; if ($cc0) { $sp[$c] = [double](Num $v[$i,$cc0]) } }   # 머리글 '금형주조'(띄어쓰기 없음)도 인식 (10월)
       $line[$inv] = [pscustomobject]@{ Bl = (Num $v[$i,$blC]); Rate = $(if ($col['환율']) { Num $v[$i,$col['환율']] }); Usd = $(if ($col['달러']) { Num $v[$i,$col['달러']] }); Krw = (Num $v[$i,$col['원화']]); Where = "$($s.Name)!R$($u.Row + $i - 1)"; Split = $sp }
     }
   }
   $wb.Close($false)
 
-  # 회계 26.09(NEW): A 거래처, C 인보이스, D 면장번호, F BL일자, G 환율, H 외화, I 원화
+  # 회계 YY.MM(NEW): A 거래처, C 인보이스, D 면장번호, F BL일자, G 환율, H 외화, I 원화 ('Invoice' 머리글 다음 줄부터 '총계' 줄 전까지)
   $acc = @{}; $accList = @()
-  $wb = $xl.Workbooks.Open("$base\회계 2026년 수출 (2026.09).xlsx", 0, $true); $sa = $wb.Worksheets.Item("26.09(NEW)")
-  $v = $sa.Range("A31:I132").Value2
-  for ($i = 1; $i -le 102; $i++) {
+  $accF = @(Get-ChildItem $base -File | ? { $_.Name -match '^회계.*수출' -and $_.Name -match "\($yy\.$mm2\)" -and $_.Name -notmatch '^~\$' })[0]
+  if (-not $accF) { throw "회계 수출 파일이 없음 (회계 ... ($yy.$mm2).xlsx)" }
+  $accSheet = "$yy2.$mm2(NEW)"
+  $wb = $xl.Workbooks.Open($accF.FullName, 0, $true); $sa = $wb.Worksheets.Item($accSheet)
+  $na0 = $sa.UsedRange.Row + $sa.UsedRange.Rows.Count - 1; $vA = $sa.Range("A1:F80").Value2; $ah0 = $null
+  for ($i = 1; $i -le 80 -and -not $ah0; $i++) { for ($j = 1; $j -le 6; $j++) { if ("$($vA[$i,$j])".Trim() -eq 'Invoice') { $ah0 = $i; break } } }
+  if (-not $ah0) { throw "회계 $accSheet 시트에서 'Invoice' 머리글을 못 찾음" }
+  $v = $sa.Range("A$($ah0 + 1):I$na0").Value2
+  for ($i = 1; $i -le ($na0 - $ah0); $i++) {
+    if ("$($v[$i,1])" -match '총\s*계') { break }
     $inv = K $v[$i,3]; if (-not $inv) { continue }
-    $a = [pscustomobject]@{ R = 30 + $i; Cust = (K $v[$i,1]); Inv = $inv; Mj = (K $v[$i,4]); Bl = (Num $v[$i,6]); Rate = (Num $v[$i,7]); Fc = (Num $v[$i,8]); Krw = (Num $v[$i,9]); Gray = $false; Green = $false }
+    $a = [pscustomobject]@{ R = $ah0 + $i; Cust = (K $v[$i,1]); Inv = $inv; Mj = (K $v[$i,4]); Bl = (Num $v[$i,6]); Rate = (Num $v[$i,7]); Fc = (Num $v[$i,8]); Krw = (Num $v[$i,9]); Gray = $false; Green = $false }
     if ($a.Mj -match '^\d{5}-\d{2}-\d{6}X$') {
       $c = [int]$sa.Range("D$($a.R)").DisplayFormat.Interior.Color; $rr = $c -band 255; $gg = ($c -shr 8) -band 255; $bb = ($c -shr 16) -band 255
       $a.Gray = ($rr -eq $gg -and $gg -eq $bb -and $rr -lt 230); $a.Green = ($c -eq 10213316); $accList += $a
@@ -115,8 +140,8 @@ try {
   $wb.Close($false)
 
   $wb = $xl.Workbooks.Open($mesPath)
-  $ws = $wb.Worksheets.Item("mes9월")
-  if ($wb.ReadOnly) { throw "mes9월.xls가 읽기 전용으로 열림(다른 Excel에서 열려 있음)" }
+  $ws = $wb.Worksheets.Item($sheetName)
+  if ($wb.ReadOnly) { throw "$sheetName.xls가 읽기 전용으로 열림(다른 Excel에서 열려 있음)" }
   $xl.ScreenUpdating = $false; $xl.Calculation = -4135   # 쓰는 동안 수동 계산
   # 10) 열 추가 (이미 있으면 건너뜀)
   $hd0a = @(1..($ws.UsedRange.Column + $ws.UsedRange.Columns.Count - 1) | % { "$($ws.Cells(1,$_).Value2)".Trim() })
@@ -129,7 +154,7 @@ try {
   # 15) 금액 옆 '전자세금계산서 금액', 맨 끝 '세금계산서 일련번호' (이미 있으면 건너뜀)
   $nc0 = $ws.UsedRange.Column + $ws.UsedRange.Columns.Count - 1; $hd0 = @(1..$nc0 | % { "$($ws.Cells(1,$_).Value2)".Trim() })
   if ($hd0 -notcontains '전자세금계산서 금액') {
-    $amtC0 = [array]::IndexOf($hd0, '금액') + 1; if ($amtC0 -lt 1) { throw "mes9월에 '금액' 열이 없음" }
+    $amtC0 = [array]::IndexOf($hd0, '금액') + 1; if ($amtC0 -lt 1) { throw "$($sheetName)에 '금액' 열이 없음" }
     $ws.Columns($amtC0 + 1).Insert() | Out-Null; $ws.Cells(1, $amtC0 + 1).Value2 = '전자세금계산서 금액'; $nc0++; "열 추가: 전자세금계산서 금액 (금액 옆)"
   }
   if (@(1..$nc0 | % { "$($ws.Cells(1,$_).Value2)".Trim() }) -notcontains '세금계산서 일련번호') {
@@ -226,7 +251,7 @@ try {
   if ($amtEdits.Count) { "금액 직접 수정된 줄: $($amtEdits.Count)개 (노란 칸, 원래 금액은 메모)" }
   $nc = $ws.UsedRange.Columns.Count; $hdr = $ws.Range($ws.Cells(1,1), $ws.Cells(1,$nc)).Value2
   $C = @{}; for ($j = 1; $j -le $nc; $j++) { $h = "$($hdr[1,$j])".Trim(); if ($h -and -not $C.ContainsKey($h)) { $C[$h] = $j } }
-  foreach ($h in '출고일','BL날짜','인보이스 번호','환율','기초자료환율','달러','기초자료달러','수출면장 번호','구분','고객사','금액','출고Lot','출고수량') { if (-not $C[$h]) { throw "mes9월에 '$h' 열이 없음" } }
+  foreach ($h in '출고일','BL날짜','인보이스 번호','환율','기초자료환율','달러','기초자료달러','수출면장 번호','구분','고객사','금액','출고Lot','출고수량') { if (-not $C[$h]) { throw "$($sheetName)에 '$h' 열이 없음" } }
   $last = $ws.UsedRange.Row + $ws.UsedRange.Rows.Count - 1
   if ("$($ws.Cells($last,1).Value2)".Trim() -eq 'TOTAL') { $tot = $last; $last-- } else { $tot = $null }
   $cTaxA = $C['전자세금계산서 금액']; $cTaxN = $C['세금계산서 일련번호']   # 매번 새로 채움
@@ -271,6 +296,8 @@ try {
     if ($cand.Count -eq 1) { $alias[$r] = $o; $lots[$r] = [string]$cand[0]   # 사용자 확인 완료(12) → 에러 표시 안 함, 행 배경색 그대로
       $bg0 = $ws.Cells($r, $C['출고일']).Interior; if ($bg0.ColorIndex -eq -4142) { $ws.Cells($r, $C['출고Lot']).Interior.ColorIndex = -4142 } else { $ws.Cells($r, $C['출고Lot']).Interior.Color = [int]$bg0.Color } }
   }
+  # 신코·코마츠 Lot(DSM…-SK·JS)인데 매출내역서 엑셀에 없음 → 다음 달 이월로 봄 (2026-11-12, 예: 10월 DSM2610-SK02 = 10월 출고·회계에도 없음)
+  for ($r = 2; $r -le $last; $r++) { $o = $lots[$r]; if ($o -and -not $pdf[$o] -and -not $skOut[$o] -and ($o -match '^DSM\d{4}-(SK|JS)\d' -or ($o -match '^DSM' -and "$($v[$r,$C['고객사']])" -match '신코|코마츠'))) { $skOut[$o] = '매출내역서 엑셀에 없음' } }
 
   $cBl = $C['BL날짜']; $cInv = $C['인보이스 번호']; $cFx = $C['기초자료환율']; $cUsd = $C['기초자료달러']
   foreach ($cc in $cBl, $cInv, $cFx, $cUsd) { $rg = $ws.Range($ws.Cells(2,$cc), $ws.Cells($last,$cc)); $rg.ClearContents() | Out-Null; $rg.ClearComments() | Out-Null }
@@ -285,13 +312,13 @@ try {
     if ($skOut[$lot]) {   # 신코·코마츠인데 매출내역서 엑셀에 없음(또는 'NN-' 다음 달) → 회계 회색이면 이월
       $a0 = $acc[$lot]; $gray0 = @($accList | ? { $_.Inv -eq $lot -and $_.Gray }).Count -gt 0
       $ws.Cells($r,$cBl).NumberFormat = "@"; $ws.Cells($r,$cBl).Value2 = '이월'; $ws.Cells($r,$cBl).Interior.Color = 15921906; $cnt.Carry++
-      $blRows += ,@($r, $cust, $lot, $(if ($a0) { $a0.Bl }), '신코·코마츠 매출내역서', $null, "$($skOut[$lot]) / $(if ($gray0 -or $skOut[$lot] -match '이월') { "회계 면장번호 회색 → $(($closeYM % 100) % 12 + 1)월 이월 건" } else { '회계 면장번호가 회색이 아님 → 매출내역서에서 빠졌는지 확인해 주세요' })")
+      $blRows += ,@($r, $cust, $lot, $(if ($a0) { $a0.Bl }), '신코·코마츠 매출내역서', $null, "$($skOut[$lot]) / $(if (-not $a0) { "회계에도 없음 → $nLab 이월 건으로 보임(BL 미발행)" } elseif ($gray0 -or $skOut[$lot] -match '이월') { "회계 면장번호 회색 → $nLab 이월 건" } else { '회계 면장번호가 회색이 아님 → 매출내역서에서 빠졌는지 확인해 주세요' })")
       continue
     }
     if ($pdf[$lot]) { $p = $pdf[$lot]; $src = [pscustomobject]@{ Name = "$($p.File) 매출내역서"; Bl = $p.BlN; Inv = $lot; Rate = $p.Rate; Fc = $p.Fc } ; $cnt.PDF++ }
     elseif ($kind -eq '해외') {
       $cnt.LINE++
-      if ($line[$lot]) { $l = $line[$lot]; $src = [pscustomobject]@{ Name = "9월라인 $($l.Where)"; Bl = $l.Bl; Inv = $lot; Rate = $l.Rate; Fc = $l.Usd } }
+      if ($line[$lot]) { $l = $line[$lot]; $src = [pscustomobject]@{ Name = "$lineName $($l.Where)"; Bl = $l.Bl; Inv = $lot; Rate = $l.Rate; Fc = $l.Usd } }
     }
     elseif ($kind -eq '국내') {
       # 국내: BL날짜 = 출하일(MES 출고일), 인보이스 번호는 기재하지 않음, 오류 표시 없음
@@ -304,21 +331,21 @@ try {
     # BL날짜
     if ($src -and $src.Bl) { $ws.Cells($r,$cBl).Value2 = [double]$src.Bl; $ws.Cells($r,$cBl).NumberFormat = "yyyy-mm-dd" }
     $why = @()
-    if (-not $src) { $why += "9월라인에 인보이스 없음" } elseif (-not $src.Bl) { $why += "$($src.Name)에 BL날짜 없음" }
+    if (-not $src) { $why += "$($lineName)에 인보이스 없음" } elseif (-not $src.Bl) { $why += "$($src.Name)에 BL날짜 없음" }
     if (-not $a) { $why += "회계에 인보이스 없음(기준 없음)" }
     elseif ($src -and $src.Bl -and $a.Bl -and [math]::Floor($src.Bl) -ne [math]::Floor($a.Bl)) { $why += "BL날짜 다름: 기초자료 $(DS $src.Bl) / 회계 $(DS $a.Bl)" }
-    if ($a -and $a.Bl -ge 46296 -and -not $src) { $why += "회계 BL일 $(DS $a.Bl) → 10월 이월 건(9월라인은 당월 BL분만 있음)" }
-    $carry = $a -and $a.Bl -ge 46296 -and -not $src   # 회계 BL일 10/01 = 다음 달 이월 → 날짜 대신 '이월', 회색
+    if ($a -and $a.Bl -ge $nextOA -and -not $src) { $why += "회계 BL일 $(DS $a.Bl) → $nLab 이월 건($($lineName)은 당월 BL분만 있음)" }
+    $carry = $a -and $a.Bl -ge $nextOA -and -not $src   # 회계 BL일이 다음 달 1일 이후 = 다음 달 이월 → 날짜 대신 '이월', 회색
     if ($carry) { $ws.Cells($r,$cBl).NumberFormat = "@"; $ws.Cells($r,$cBl).Value2 = '이월'; $ws.Cells($r,$cBl).Interior.Color = 15921906; $cnt.Carry++
-      $blRows += ,@($r, $cust, $lot, $a.Bl, '9월라인', $null, (($why -join ' / ') + $al)) }
+      $blRows += ,@($r, $cust, $lot, $a.Bl, $lineName, $null, (($why -join ' / ') + $al)) }
     elseif ($why) { $ws.Cells($r,$cBl).Interior.Color = $RED; $cnt.Red++
-      $blRows += ,@($r, $cust, $lot, $(if ($a) { $a.Bl }), $(if ($src) { $src.Name } else { '9월라인' }), $(if ($src) { $src.Bl }), (($why -join ' / ') + $al)) }
+      $blRows += ,@($r, $cust, $lot, $(if ($a) { $a.Bl }), $(if ($src) { $src.Name } else { $lineName }), $(if ($src) { $src.Bl }), (($why -join ' / ') + $al)) }
     # 인보이스 번호
     if ($src) { $ws.Cells($r,$cInv).NumberFormat = "@"; $ws.Cells($r,$cInv).Value2 = [string]$src.Inv }
-    $why2 = @(); if (-not $src) { $why2 += "9월라인에 인보이스 없음" }; if (-not $a) { $why2 += "회계에 인보이스 없음(기준 없음)" }
-    if ($a -and $a.Bl -ge 46296 -and -not $src) { $why2 += "10월 이월 건" }
+    $why2 = @(); if (-not $src) { $why2 += "$($lineName)에 인보이스 없음" }; if (-not $a) { $why2 += "회계에 인보이스 없음(기준 없음)" }
+    if ($a -and $a.Bl -ge $nextOA -and -not $src) { $why2 += "$nLab 이월 건" }
     if ($why2) { $ws.Cells($r,$cInv).Interior.Color = $RED; $cnt.InvRed++
-      $invRows += ,@($r, $cust, $lot, $(if ($a) { $a.Inv }), $(if ($src) { $src.Name } else { '9월라인' }), $(if ($src) { $src.Inv } else { '없음' }), (($why2 -join ' / ') + $al)) }
+      $invRows += ,@($r, $cust, $lot, $(if ($a) { $a.Inv }), $(if ($src) { $src.Name } else { $lineName }), $(if ($src) { $src.Inv } else { '없음' }), (($why2 -join ' / ') + $al)) }
     if (-not $grp.Contains($lot)) { $grp[$lot] = [pscustomobject]@{ Src = $src; Acc = $a; Cust = $cust; Rows = New-Object System.Collections.ArrayList } }
     [void]$grp[$lot].Rows.Add($r)
   }
@@ -330,7 +357,7 @@ try {
     $jpy = [bool]$pdf[$lot]; $fmtR = if ($jpy) { "0.0000" } else { "#,##0.00" }
     $krwOnly = $src -and -not $src.Rate -and -not $src.Fc   # Bergen·Atlas: 9월라인 원화 거래
     $why = @()
-    if (-not $src) { $why += "9월라인에 인보이스 없음 → 기초자료 환율·달러 없음"; if ($a -and $a.Bl -ge 46296) { $why += "10월 이월 건" } }
+    if (-not $src) { $why += "$($lineName)에 인보이스 없음 → 기초자료 환율·달러 없음"; if ($a -and $a.Bl -ge $nextOA) { $why += "$nLab 이월 건" } }
     elseif ($krwOnly) { }
     else {
       foreach ($r in $rows) { $ws.Cells($r,$cFx).Value2 = [double]$src.Rate; $ws.Cells($r,$cFx).NumberFormat = $fmtR }
@@ -348,7 +375,7 @@ try {
       }
     }
     if (-not $src) { foreach ($r in $rows) { $ws.Cells($r,$cFx).Interior.Color = $RED; $ws.Cells($r,$cUsd).Interior.Color = $RED } }
-    if ($why) { $cmpRows += ,@($lot, $g.Cust, $(if ($src) { $src.Name } else { '9월라인' }), $(if ($src) { $src.Rate }), $(if ($a) { $a.Rate }), $(if ($src) { $src.Fc }), $(if ($a) { $a.Fc }), (($rows | % { "R$_" }) -join ','), ($why -join ' / ')) }
+    if ($why) { $cmpRows += ,@($lot, $g.Cust, $(if ($src) { $src.Name } else { $lineName }), $(if ($src) { $src.Rate }), $(if ($a) { $a.Rate }), $(if ($src) { $src.Fc }), $(if ($a) { $a.Fc }), (($rows | % { "R$_" }) -join ','), ($why -join ' / ')) }
   }
   # Replacement 행: 달러·기초자료달러 0, 달러·기초자료달러·6칸 빨간색 해제(행 배경색으로)
   foreach ($r in @($repl.Keys)) {
@@ -397,7 +424,7 @@ try {
   foreach ($s in @($wb.Worksheets)) { if ($s.Name -in '면장별합계', '면장별합계2', '해외매출') { $s.Delete() } }
   $gs = $wb.Worksheets.Add([Type]::Missing, $ws); $gs.Name = "해외매출"   # 12) 면장별합계 → 해외매출
   $ColL = { param($c) ($ws.Cells(1,$c).Address($false,$false) -replace '\d','') }
-  $mesName = "'mes9월'"; $mjL = & $ColL $C['수출면장 번호']
+  $mesName = "'$sheetName'"; $mjL = & $ColL $C['수출면장 번호']
   $gh = @('수출면장 번호', '인보이스 번호', 'BL날짜', '고객사', '구분', '통화', '환율', '외화금액', '원화금액(회계)', 'MES 행 수', 'MES 출고수량', 'MES 금액') + $cats + @('스크랩(사형)', '스크랩(금형)', '출처 기준처', '에러내용')
   for ($j = 0; $j -lt $gh.Count; $j++) { $gs.Cells(1, $j + 1).Value2 = [string]$gh[$j] }
   $mesMj = @{}; for ($r = 2; $r -le $last; $r++) { $m0 = "$($ws.Cells($r,$C['수출면장 번호']).Value2)".Trim(); if ($m0) { $mesMj[$m0]++ } }
@@ -421,20 +448,20 @@ try {
       if ($p.Scrap[0]) { $gs.Cells($row, 19).Value2 = [double]$p.Scrap[0] }; if ($p.Scrap[1]) { $gs.Cells($row, 20).Value2 = [double]$p.Scrap[1] }
       $gs.Range($gs.Cells($row,13), $gs.Cells($row,20)).Interior.Color = 15921906
       $gs.Cells($row, 21).Value2 = [string]"$($p.File) 매출내역서(스크랩 별도 칸, 가공은 가공3)"; $nPdf++
-      if (-not $mesMj[$t.Mj]) { $note += "MES 9월 출고에 없음(전월 출고분)" }
+      if (-not $mesMj[$t.Mj]) { $note += "MES $mLab 출고에 없음(전월 출고분)" }
     } else {
-      $cmp = if ($l) { [pscustomobject]@{ N = '9월라인'; Bl = $l.Bl; Rate = $l.Rate; Fc = $l.Usd; Krw = $l.Krw; Mj = $null } } else { $null }
+      $cmp = if ($l) { [pscustomobject]@{ N = $lineName; Bl = $l.Bl; Rate = $l.Rate; Fc = $l.Usd; Krw = $l.Krw; Mj = $null } } else { $null }
       if ($mesMj[$t.Mj]) {
         $k0 = 13; foreach ($k in $cats) { $sc = & $ColL $C[$k]; $gs.Cells($row, $k0).Formula = "=SUMIFS($mesName!${sc}:${sc},$mesName!${mjL}:${mjL},`$A$row)"; $k0++ }
         $gs.Cells($row, 21).Value2 = "MES"; $nMes++
       } elseif ($l) {
         $k0 = 13; foreach ($k in $cats) { if ($l.Split[$k]) { $gs.Cells($row, $k0).Value2 = [double]$l.Split[$k] }; $k0++ }
-        $gs.Range($gs.Cells($row,13), $gs.Cells($row,18)).Interior.Color = 10092543; $gs.Cells($row, 21).Value2 = "9월라인(참고)"; $nRef++
-        $note += "MES 9월 출고에 없음(전월 출고분)"
-      } else { $gs.Range($gs.Cells($row,13), $gs.Cells($row,18)).Interior.Color = $RED; $note += "6칸 분해 자료 없음"; $note += "MES 9월 출고에 없음(전월 출고분)" }
+        $gs.Range($gs.Cells($row,13), $gs.Cells($row,18)).Interior.Color = 10092543; $gs.Cells($row, 21).Value2 = "$($lineName)(참고)"; $nRef++
+        $note += "MES $mLab 출고에 없음(전월 출고분)"
+      } else { $gs.Range($gs.Cells($row,13), $gs.Cells($row,18)).Interior.Color = $RED; $note += "6칸 분해 자료 없음"; $note += "MES $mLab 출고에 없음(전월 출고분)" }
     }
     # 회계와 비교 → 다르면 해당 칸 빨간색
-    if (-not $cmp) { $note += "9월라인에 인보이스 없음(비교 불가)" }
+    if (-not $cmp) { $note += "$($lineName)에 인보이스 없음(비교 불가)" }
     else {
       if ($cmp.Bl -and $t.Bl -and [math]::Floor($cmp.Bl) -ne [math]::Floor($t.Bl)) { $gs.Cells($row, 3).Interior.Color = $RED; $note += "BL날짜: $($cmp.N) $(DS $cmp.Bl) ≠ 회계 $(DS $t.Bl)" }
       if ($cmp.Mj -and $cmp.Mj -ne $t.Mj) { $gs.Cells($row, 1).Interior.Color = $RED; $note += "면장번호: $($cmp.N) $($cmp.Mj) ≠ 회계 $($t.Mj)" }
@@ -456,8 +483,8 @@ try {
 
   # 15) 국내매출 시트: MES 국내 출고(신코·코마츠 PDF 건 제외) 고객사별 1줄 + 아마란스 전자세금계산서(매출) 공급가액 비교
   $kNorm = { param($x) (("$x" -replace '\(주\)|㈜|주식회사|\(유\)|\s', '' -replace '에스앤티', 'SNT' -replace '아트라스콥코코리아|아트라스콥코', 'ATLASKOREA').ToUpper()) }   # 거래처명 대응표
-  $taxF = @(Get-ChildItem $base -File | ? { $_.Name -match '세금계산서|taxData' -and $_.Extension -match '^\.xls' -and $_.Name -notmatch '^~\$' } | sort { if ($_.Name -match '^9월') { 0 } else { 1 } }, Name) | select -First 1
-  $tax = @(); $closeYM = 202609   # 마감 월 (작성일 기준으로 이 달만 MES와 비교)
+  $taxF = @(Get-ChildItem $base -File | ? { $_.Name -match '세금계산서|taxData' -and $_.Extension -match '^\.xls' -and $_.Name -notmatch '^~\$' } | sort { if ($_.Name -match "^$mLab") { 0 } else { 1 } }, Name) | select -First 1
+  $tax = @(); $closeYM = $YM   # 마감 월 (작성일 기준으로 이 달만 MES와 비교)
   $toDate = { param($x) if ($x -is [double]) { [DateTime]::FromOADate($x) } else { $p0 = [DateTime]::MinValue; if ([DateTime]::TryParse("$x".Trim(), [ref]$p0)) { $p0 } else { $null } } }
   if ($taxF) {
     $wbT = $xl.Workbooks.Open($taxF.FullName, 0, $true); $sT = $wbT.Worksheets.Item(1); $tv = $sT.UsedRange.Value2; $tn = $sT.UsedRange.Rows.Count; $tc = $sT.UsedRange.Columns.Count
@@ -481,8 +508,9 @@ try {
   # 일별마감(예: 2609 시트): 9월 출하 / 전월 출하(9월 매출) / 반품·불량(-) / 단가 소급 / 10월 이월(매출 제외) / 불량반출(참고만). 소계 줄(날짜·품번 없음) 제외
   $mNo = $closeYM % 100; $nextNo = $mNo % 12 + 1; $mLab = "$($mNo)월"; $nLab = "$($nextNo)월"
   $pdfCustK = @{}; for ($r = 2; $r -le $last; $r++) { if ($pdf[$lots[$r]]) { $pdfCustK[(& $kNorm $v[$r,$C['고객사']])] = $true } }
-  $daily = @(); $dPath = "$base\2026년 일별마감list.xlsx"; $dSheet = "$($closeYM - 200000)"
-  if (Test-Path $dPath) {
+  $daily = @(); $dSheet = "$($closeYM - 200000)"
+  $dPath = "$base\$($yy)년 일별마감list.xlsx"; if (-not (Test-Path $dPath)) { $dPath = "$(@(Get-ChildItem $base -File | ? { $_.Name -match '일별마감' -and $_.Extension -match '^\.xls' -and $_.Name -notmatch '^~\$' })[0].FullName)" }
+  if ($dPath -and (Test-Path $dPath)) {
     $wbD = $xl.Workbooks.Open($dPath, 0, $true); $sD = $wbD.Worksheets.Item($dSheet); $dn = $sD.UsedRange.Rows.Count; $dv = $sD.Range("A1:I$dn").Value2; $dfm = $sD.Range("H1:H$dn").Formula; $wbD.Close($false)
     # 고객사별 하늘색 소계 줄(=SUM(H a:H b)) 범위 = 이번 달 매출(세금계산서와 같음). 소계가 있는 고객사의 범위 밖 줄은 비고가 없어도 이월 (사용자 확인 2026-10-29)
     $covD = @{}; $subK = @{}
@@ -492,12 +520,12 @@ try {
       $d0 = $dv[$i,1]; $pn = "$($dv[$i,4])".Trim()
       if (-not ($d0 -is [double]) -and -not $pn) { continue }   # 소계 줄
       $k0 = & $kNorm $c0; if ($pdfCustK[$k0]) { continue }       # 신코·코마츠 = 해외매출(PDF 기준)
-      $ym = if ($d0 -is [double]) { $dd = [DateTime]::FromOADate($d0); $dd.Year * 100 + $dd.Month } else { 0 }
+      $ymD = if ($d0 -is [double]) { $dd = [DateTime]::FromOADate($d0); $dd.Year * 100 + $dd.Month } else { 0 }
       $b0 = "$($dv[$i,9])".Trim(); $q0 = [double](Num $dv[$i,6]); $a0 = [double](Num $dv[$i,8])
-      $cat = if ($b0 -match '불량반출') { 'bad' } elseif ($b0 -match "^$($nextNo)월\s*이월") { 'carry' } elseif ($subK[$k0] -and -not $covD[$i]) { if (-not $b0) { $b0 = '(비고 없음 · 일별마감 소계 범위 밖)' }; 'carry' } elseif ($b0 -match '소급') { 'retro' } elseif ($a0 -lt 0 -or $q0 -lt 0) { 'ret' } elseif ($ym -eq $closeYM) { 'cur' } elseif ($ym) { 'prev' } else { 'nodate' }
+      $cat = if ($b0 -match '불량반출') { 'bad' } elseif ($b0 -match "^$($nextNo)월\s*이월") { 'carry' } elseif ($subK[$k0] -and -not $covD[$i]) { if (-not $b0) { $b0 = '(비고 없음 · 일별마감 소계 범위 밖)' }; 'carry' } elseif ($b0 -match '소급') { 'retro' } elseif ($a0 -lt 0 -or $q0 -lt 0) { 'ret' } elseif ($ymD -eq $closeYM) { 'cur' } elseif ($ymD) { 'prev' } else { 'nodate' }
       # 불량대체: 일별마감 금액 칸(또는 비고)에 '불량대체', 원래 금액은 비고에 적힘 (예: 맥시스 금액 '불량대체' / 비고 9219000) → 매출 아님, MES와 차이 설명용
       $bd0 = if ("$($dv[$i,8])$b0" -match '불량대체') { $n0 = Num ($b0 -replace '[^\d\.]', ''); if ($n0) { [double]$n0 } else { 0.0 } } else { $null }
-      $daily += [pscustomobject]@{ R = $i; Cust = $c0; Key = $k0; YM = $ym; Cat = $cat; Q = $q0; A = $a0; B = $b0; BD = $bd0 }
+      $daily += [pscustomobject]@{ R = $i; Cust = $c0; Key = $k0; YM = $ymD; Cat = $cat; Q = $q0; A = $a0; B = $b0; BD = $bd0 }
     }
   }
   # 고객사 묶기: MES · 일별마감 · 세금계산서를 거래처명으로 맞춤(㈜·(주)·주식회사·띄어쓰기 빼고 같으면 → 아니면 앞부분이 같은 곳이 하나뿐일 때)
@@ -771,13 +799,13 @@ try {
         $why = $why -replace 'MES 금액 없음 → 분해 불가', '불량대체: MES 금액이 비어 있는 것은 불량 대체품이라 정상 (국내 영업팀 확인). 금액이 없어 라인별로 나누지 않음'
         $cls = '참고'
       }
-      $why = $why -replace '비율 차이\(0\.5%p 초과\):\s*', 'MES와 9월라인의 라인별 금액 비율이 0.5% 넘게 다름 → ' -replace ' vs 참고 ', ' / 9월라인 '
+      $why = $why -replace '비율 차이\(0\.5%p 초과\):\s*', "MES와 $($lineName)의 라인별 금액 비율이 0.5% 넘게 다름 → " -replace ' vs 참고 ', " / $lineName "
       $why = [regex]::Replace($why, '수량×\(주조비\+가공비\) ([\d,]+) ≠ 금액 ([\d,]+) → 차액 (-?[\d,]+)을 가공에 반영', '수량×단가(주조비+가공비) = $1원, MES 금액 = $2원 → 차이 $3원은 단수 차이라 가공 금액에 넣음')
       if ($baseT -match '^([^/%,\s]+)/([^/%,\s]+)$') { $baseT = "MES 라인: $($matches[1]) / 가공: $(if ($matches[2] -eq '소재') { '없음(소재)' } else { $matches[2] })" }
       $why = $why -replace '사/자/금', '사형·자동·금형'
     }
     $why = [regex]::Replace($why, '원화 오류: (\S+) ([\d,]+) ≠ 회계 ([\d,]+) \(차 (-?[\d,]+)\) - 회계\(엔화×환율\)가 맞음, PDF 사형·금형·가공·스크랩 합계가 틀림', { param($m) $dd = [double]($m.Groups[4].Value -replace ',', ''); "$($m.Groups[1].Value) 항목별 금액(사형·금형·가공·스크랩) 합계 $($m.Groups[2].Value)원이 회계 $($m.Groups[3].Value)원(엔화×환율)보다 $('{0:N0}' -f [math]::Abs($dd))원 $(if ($dd -lt 0) { '적음' } else { '많음' }) → 회계가 맞음. PDF 금액 확인 필요" })
-    $why = $why -replace '9월마감 번호 비어 있음', '9월마감 파일에 면장번호가 비어 있음' -replace '원화 거래\(환율 없음\) → 달러 미기재', '원화 거래라 환율이 없어 달러를 적지 않음' -replace '원화 거래\(회계 환율 없음\) → 환율 미기재', '원화 거래라 회계에 환율이 없어 환율을 적지 않음'
+    $why = $why -replace "$($mLab)마감 번호 비어 있음", "$($mLab)마감 파일에 면장번호가 비어 있음" -replace '원화 거래\(환율 없음\) → 달러 미기재', '원화 거래라 환율이 없어 달러를 적지 않음' -replace '원화 거래\(회계 환율 없음\) → 환율 미기재', '원화 거래라 회계에 환율이 없어 환율을 적지 않음'
     $srcT = "$($e[6])" -replace '^MES 자체$', 'MES' -replace '\(스크랩 별도 칸, 가공은 가공3\)', ''
     $srcT = [regex]::Replace($srcT, '일별마감 (\d{2})(\d{2})!R(\d+)', { param($m) "일별마감 $([int]$m.Groups[2].Value)월 시트 $($m.Groups[3].Value)행" })
     $srcT = $srcT -replace '(\S+)!R(\d+)', '''$1'' 시트 $2행'
@@ -794,15 +822,15 @@ try {
   $cs = $wb.Worksheets.Add([Type]::Missing, $ts); $cs.Name = '이월매출'
   $ch = @('인보이스 번호', '고객사', '수출면장 번호(회계)', 'BL날짜(회계)', '환율(회계)', '외화금액(회계)', '원화금액(회계)', 'MES 행', 'MES 출고수량', 'MES 금액', '이월 사유', '참고')
   for ($j = 0; $j -lt $ch.Count; $j++) { $cs.Cells(1, $j + 1).Value2 = [string]$ch[$j] }
-  $boiler = '9월라인에 인보이스 없음|10월 이월 건|BL날짜 미확정|환율 빨간색|회계에 인보이스 없음'
+  $boiler = "$($lineName)에 인보이스 없음|$nLab 이월 건|BL날짜 미확정|환율 빨간색|회계에 인보이스 없음"
   $crow = 2
   foreach ($inv in @($carry.Keys)) {
     $a = $acc[$inv]; $mine = @($recs | ? { $_.Inv -eq $inv -and $_.Cls -ne '에러' })
     $mr = if ($grp.Contains($inv)) { @($grp[$inv].Rows) } else { @() }
     $cust = if ($a -and $a.Cust) { $a.Cust } else { @($mine | % Cust | ? { $_ })[0] }
-    $main = @(); if ($a -and $a.Bl -ge 46296) { $main += "회계 BL일 $(DS $a.Bl) → 10월 매출" }
+    $main = @(); if ($a -and $a.Bl -ge $nextOA) { $main += "회계 BL일 $(DS $a.Bl) → $nLab 매출" }
     if ($a -and @($accList | ? { $_.Inv -eq $inv -and $_.Gray }).Count) { $main += "회계 면장번호 회색(다음 달 이월)" }
-    if (-not $line[$inv] -and -not $pdf[$inv]) { $main += "9월라인에 없음(BL 미확정)" }
+    if (-not $line[$inv] -and -not $pdf[$inv]) { $main += $(if ($skOut[$inv]) { '신코·코마츠 매출내역서에 없음(BL 미확정)' } else { "$($lineName)에 없음(BL 미확정)" }) }
     $extra = U ($mine | % { $_.Why -split ' / ' } | ? { $_ -notmatch $boiler -and $_ -notmatch '^회계 BL일' })
     $cs.Cells($crow, 1).NumberFormat = "@"; $cs.Cells($crow, 1).Value2 = [string]$inv
     if ($cust) { $cs.Cells($crow, 2).Value2 = [string]$cust }
@@ -812,7 +840,7 @@ try {
       if ($a.Fc) { $cs.Cells($crow, 6).Value2 = [double]$a.Fc }; if ($a.Krw) { $cs.Cells($crow, 7).Value2 = [double]$a.Krw }
     }
     $rl = if ($mr.Count) { (@($mr | sort) -join ', ') } else { RowList ($mine | % Row) }
-    if ($rl) { $cs.Cells($crow, 8).NumberFormat = "@"; $cs.Cells($crow, 8).Value2 = [string]$rl } else { $cs.Cells($crow, 8).Value2 = 'MES 9월 출고 없음' }
+    if ($rl) { $cs.Cells($crow, 8).NumberFormat = "@"; $cs.Cells($crow, 8).Value2 = [string]$rl } else { $cs.Cells($crow, 8).Value2 = "MES $mLab 출고 없음" }
     if ($mr.Count) { $cs.Cells($crow, 9).Value2 = [double](($mr | % { [double](Num $v[$_, $C['출고수량']]) } | measure -Sum).Sum); $cs.Cells($crow, 10).Value2 = [double](($mr | % { [double](Num $v[$_, $C['금액']]) } | measure -Sum).Sum) }
     $cs.Cells($crow, 11).Value2 = [string]($main -join ' / ')
     if ($extra) { $cs.Cells($crow, 12).Value2 = [string]($extra -join ' / ') }
@@ -858,7 +886,7 @@ try {
     $mFc = [math]::Round($mAmt / $a.Rate, 2); $dFc = [math]::Round($a.Fc - $mFc, 2)
     $cur = if ($a.Rate -lt 50) { 'JPY' } else { 'USD' }
     $vals0 = @('출하기준 금액변동', '해외', $inv, $a.Cust, $cur, ((@($mr | sort)) -join ', '), $mQty, $mAmt, $a.Krw, ($a.Krw - $mAmt), $a.Rate, $mFc, $a.Fc, $dFc, $(if ($mFc) { '{0:+0.00;-0.00}%' -f ($dFc / $mFc * 100) } else { '' }),
-      $(if ($pdf[$inv]) { "회계 (= $($pdf[$inv].File) 매출내역서)" } else { '회계 (= 9월라인)' }), "MES 금액은 내부 고정환율(약 1,350원/USD) 기준 → BL일 환율·인보이스 금액과 차이 (정상)")
+      $(if ($pdf[$inv]) { "회계 (= $($pdf[$inv].File) 매출내역서)" } else { "회계 (= $lineName)" }), "MES 금액은 내부 고정환율(약 1,350원/USD) 기준 → BL일 환율·인보이스 금액과 차이 (정상)")
     for ($j = 0; $j -lt $vals0.Count; $j++) { $x0 = $vals0[$j]; if ($x0 -eq $null -or "$x0" -eq '') { continue }
       if ($x0 -is [double] -or $x0 -is [int]) { $ss.Cells($srow, $j + 1).Value2 = [double]$x0 } else { $ss.Cells($srow, $j + 1).NumberFormat = "@"; $ss.Cells($srow, $j + 1).Value2 = [string]$x0 } }
     $srow++
@@ -883,7 +911,7 @@ try {
   $rowsOut = @(foreach ($key in $groups.Keys) {
     $g = @($groups[$key]); $cls = if (@($g | ? { $_.Cls -eq '에러' }).Count) { '에러' } elseif (@($g | ? { $_.Cls -eq '알림' }).Count) { '알림' } else { '참고' }
     $its = U ($g | % Item)
-    $vals = { param($p) $u0 = U ($g | % $p); if ($u0.Count -le 2) { $u0 -join ' / ' } else { "행별 상이($($u0.Count)건, mes9월 참고)" } }
+    $vals = { param($p) $u0 = U ($g | % $p); if ($u0.Count -le 2) { $u0 -join ' / ' } else { "행별 상이($($u0.Count)건, $sheetName 참고)" } }
     $why = @(foreach ($it in $its) { $ps = U ($g | ? { $_.Item -eq $it } | % { $_.Why -split ' / ' }); $(if ($its.Count -gt 1) { "[$it] " } else { '' }) + ($ps -join ' / ') }) -join "`n"
     ,@($cls, $g[0].Inv, (U ($g | % Cust) | select -First 1), ($its -join ', '), (RowList ($g | % Row)), [string]$g.Count, (& $vals 'Base'), (& $vals 'Cmp'), $(if (@(U ($g | % Src)).Count -le 2) { (U ($g | % Src)) -join ' / ' } else { (@(U ($g | % { $_.Src -replace '[\d,\.]+\s*÷', '÷' })) -join ' / ') + ' (행별)' }), $why)
   })
@@ -911,16 +939,16 @@ try {
   $es.Range($es.Cells(1,$sc0), $es.Cells(1,$sc0 + 2)).Font.Bold = $true; $es.Range($es.Cells(1,$sc0), $es.Cells(1,$sc0 + 2)).Interior.Color = $HEAD; $es.Range($es.Cells(2,$sc0), $es.Cells(2,$sc0 + 2)).Font.Color = $RED
   $es.Activate() | Out-Null; $xl.ActiveWindow.SplitRow = 1; $xl.ActiveWindow.SplitColumn = 0; $xl.ActiveWindow.FreezePanes = $true
   $errCnt = @($rowsOut | ? { $_[0] -eq '에러' }); $errList = @($errCnt | % { "  [$($_[3])] $($_[1]) MES행 $($_[4]) : $($_[9] -replace "`n", ' | ')" })
-  "국내매출: 고객사 $($nDom)줄, 세금계산서 " + $(if ($taxF) { "$($taxF.Name) 매출 $($tax.Count)매" } else { "파일 없음(기초자료에 '9월세금계산서.xlsx' 넣으면 자동 비교)" })
+  "국내매출: 고객사 $($nDom)줄, 세금계산서 " + $(if ($taxF) { "$($taxF.Name) 매출 $($tax.Count)매" } else { "파일 없음(기초자료에 '$($mLab)세금계산서.xlsx' 넣으면 자동 비교)" })
   "Replacement 행 $($repl.Count)개 → 오류에서 제외 $($nRepl)건 / 불량대체 행 $($bulD.Count)개(MES $((@($bulD.Keys | sort)) -join ', ')행) → 참고 / 출하금액변동 $($nShipInv)건(원래 행 $($nShip))"
   "원자료 $(@($recs).Count)행 → 이월매출 $($nCarry)건, 오류목록 $($rowsOut.Count)줄 (에러 $($errCnt.Count) / 참고 $(@($rowsOut | ? { $_[0] -eq '참고' }).Count))"
   $ws.Activate() | Out-Null
   $xl.Calculation = -4105; $xl.ScreenUpdating = $true
   $wb.Save(); $wb.Close($false)
 
-  "mes9월: 신코·코마츠(PDF) $($cnt.PDF)행 / 해외(9월라인) $($cnt.LINE)행 / 국내(출고일) $($cnt.DOM)행"
+  "$($sheetName): 신코·코마츠(매출내역서) $($cnt.PDF)행 / 해외($lineName) $($cnt.LINE)행 / 국내(출고일) $($cnt.DOM)행"
   "  BL날짜 '이월' $($cnt.Carry)행, BL날짜 빨간색 $($cnt.Red)행, 인보이스 빨간색 $($cnt.InvRed)행, 기초자료 환율·달러 사유 $($cmpRows.Count)건(인보이스)"
-  "해외매출: $($row - 2)건 (PDF $nPdf / MES $nMes / 9월라인 참고 $nRef), 회계와 불일치·비교불가 $($nRed)건"
+  "해외매출: $($row - 2)건 (신코·코마츠 $nPdf / MES $nMes / $lineName 참고 $nRef), 회계와 불일치·비교불가 $($nRed)건"
   "`n== 해외매출 에러내용(불일치)"; $gsNotes
   "`n== 오류목록 '에러' 분류"; $errList
 } finally { $xl.Quit() }
