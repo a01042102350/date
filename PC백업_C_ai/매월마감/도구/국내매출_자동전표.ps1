@@ -198,29 +198,54 @@ try {
   $projFor = @{ 사형 = '101'; 자동 = '102'; 금형 = '201'; 가공3 = '403' }
   function GFirst($g) { $mn = 99999; foreach ($x in $g.L) { if ($x.행 -lt $mn) { $mn = $x.행 } }; $mn }
   function GDate($g) { $mx = $null; foreach ($x in $g.I) { if ($x.날짜 -and (-not $mx -or $x.날짜 -gt $mx)) { $mx = $x.날짜 } }; $mx }
-  $ordered = @($GROUPS | Sort-Object { GFirst $_ })
+  function ProjOf($p) { if ($projFor.ContainsKey($p)) { return $projFor[$p] }; if ($p -match '사형$') { '101' } elseif ($p -match '자동$') { '102' } elseif ($p -match '가공3$') { '403' } elseif ($p -match '금형$') { '201' } else { '' } }
+  # 사람이 나눈 라인(라인나누기.csv, 세금계산서번호별 라인·프로젝트·금액) — 있으면 그 세금계산서는 이 표대로 넣고, 세금계산서마다 전표를 따로 만듦
+  #  2026-11-11 사용자 지정: 에스앤티 382,460,742 = 사형·자동·금형·가공3 / 1,776,000 = 사형, 우림 = 사형 7,340,000 + 금형비 48,507,000
+  $OVR = @{}; $ovFile = @((Join-Path $OutDir '라인나누기.csv'), (Join-Path $monDir '라인나누기.csv')) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+  if ($ovFile) { foreach ($e in (Import-Csv -LiteralPath $ovFile -Encoding UTF8)) { $k = ("$($e.세금계산서번호)" -replace '[-\s]', '').ToLower(); if (-not $k) { continue }
+      $amt = NumV $e.금액; if ($null -eq $amt) { Chk '에러' $e.거래처 "라인나누기.csv의 금액 '$($e.금액)'을 숫자로 읽지 못했습니다(세금계산서 $($e.세금계산서번호))."; continue }
+      if (-not $OVR.ContainsKey($k)) { $OVR[$k] = @() }; $OVR[$k] += [pscustomobject]@{ 라인 = "$($e.라인)".Trim(); 프로젝트 = "$($e.프로젝트)".Trim(); 금액 = [Math]::Round($amt, 0); 적요 = "$($e.적요)".Trim() } }
+    Say "  라인나누기 표: $([IO.Path]::GetFileName($ovFile)) — 세금계산서 $($OVR.Count)장" }
+  function OvFind($iv) { foreach ($k in @(("$($iv.번호)" -replace '[-\s]', '').ToLower(), $(if ($iv.tx) { $iv.tx.승인번호 } else { '' }))) { if ($k -and $OVR.ContainsKey($k)) { return , $OVR[$k] } }; $null }
+  $UNITS = New-Object Collections.Generic.List[object]; $ovUsed = @{}
+  foreach ($g in $GROUPS) { $who = $g.L[0].이름; $ivs = @($g.I | Sort-Object { $_.행[0] }); $ovs = @{}; $bad = $false
+    foreach ($iv in $ivs) { $o = OvFind $iv; if ($o) { $ovs[$iv.번호] = $o; $s0 = 0.0; foreach ($e in $o) { $s0 += $e.금액; if (-not $e.프로젝트 -and -not (ProjOf $e.라인)) { $bad = $true; Chk '에러' $who "라인나누기.csv의 라인 '$($e.라인)'의 프로젝트를 알 수 없습니다(프로젝트 칸에 101·102·201·403 등을 적어 주세요)." } }
+        if ([Math]::Abs($s0 - $iv.금액) -ge 0.5) { $bad = $true; Chk '에러' $who "라인나누기.csv의 세금계산서 $($iv.번호) 라인 합계 $('{0:N0}' -f $s0)원이 세금계산서 금액 $('{0:N0}' -f $iv.금액)원과 다릅니다. 이 거래처는 라인별 매출확정대로 넣었습니다." } } }
+    if ($ovs.Count -and $ovs.Count -lt $ivs.Count) { $bad = $true; Chk '에러' $who "라인나누기.csv에 세금계산서 $($ivs.Count)장 중 $($ovs.Count)장만 있습니다. 모두 적어 주세요. 이 거래처는 라인별 매출확정대로 넣었습니다." }
+    if ($ovs.Count -and -not $bad) {
+      # 프로젝트별 합계가 라인별 매출확정과 같은지 확인
+      $pa = @{}; foreach ($lr in $g.L) { foreach ($p in $lr.라인.Keys) { $pa[$projFor[$p]] = [double]$pa[$projFor[$p]] + $lr.라인[$p] } }
+      $pb = @{}; foreach ($o in $ovs.Values) { foreach ($e in $o) { $pj0 = if ($e.프로젝트) { $e.프로젝트 } else { ProjOf $e.라인 }; $pb[$pj0] = [double]$pb[$pj0] + $e.금액 } }
+      $dif = @(); foreach ($pj0 in (@($pa.Keys) + @($pb.Keys) | Select-Object -Unique)) { if ([Math]::Abs([double]$pa[$pj0] - [double]$pb[$pj0]) -ge 0.5) { $dif += "프로젝트 $pj0 라인별 매출확정 $('{0:N0}' -f [double]$pa[$pj0]) / 나눈 표 $('{0:N0}' -f [double]$pb[$pj0])" } }
+      if ($dif.Count) { Chk '확인' $who "라인나누기.csv대로 넣었는데 프로젝트별 합계가 라인별 매출확정과 다릅니다: $($dif -join ', ')" }
+      else { Chk '참고' $who "라인나누기.csv(사용자가 나눈 라인)대로 세금계산서 $($ivs.Count)장을 전표 $($ivs.Count)장으로 넣었습니다. 프로젝트별 합계는 라인별 매출확정과 같습니다." }
+      foreach ($iv in $ivs) { $ovUsed[$iv.번호] = $true; $UNITS.Add([pscustomobject]@{ Id = $UNITS.Count + 1; 설정 = $g.설정; L = $g.L; I = @($iv); 나눔 = $ovs[$iv.번호] }) | Out-Null } }
+    else { $UNITS.Add([pscustomobject]@{ Id = $UNITS.Count + 1; 설정 = $g.설정; L = $g.L; I = $ivs; 나눔 = $null }) | Out-Null } }
+  foreach ($k in $OVR.Keys) { $hit = $false; foreach ($iv in $INVS) { $k1 = ("$($iv.번호)" -replace '[-\s]', '').ToLower(); if ($k1 -eq $k -or ($iv.tx -and $iv.tx.승인번호 -eq $k)) { $hit = $true } }; if (-not $hit) { Chk '확인' '' "라인나누기.csv의 세금계산서 번호 '$k'가 이번 달 매출마감 확정에 없습니다." } }
+  $ordered = @($UNITS | Sort-Object { GFirst $_ }, { $_.I[0].행[0] })
   # 작성번호: 날짜마다 $StartNo(2000)부터, 같은 날짜 안에서는 라인별 매출확정 순서
-  $numOf = @{}; foreach ($g in ($ordered | Sort-Object { $d0 = GDate $_; if ($d0) { $d0.ToString('yyyyMMdd') } else { '99999999' } }, { GFirst $_ })) {
+  $numOf = @{}; foreach ($g in ($ordered | Sort-Object { $d0 = GDate $_; if ($d0) { $d0.ToString('yyyyMMdd') } else { '99999999' } }, { GFirst $_ }, { $_.I[0].행[0] })) {
     $d = GDate $g; if (-not $d) { continue }; $d8 = $d.ToString('yyyyMMdd')
     if (-not $seqByDate.ContainsKey($d8)) { $seqByDate[$d8] = $StartNo - 1 }; $seqByDate[$d8]++; $numOf[$g.Id] = @($d8, $seqByDate[$d8]) }
   foreach ($g in $ordered) { $st = $g.설정; $who = $g.L[0].이름
     if (-not $numOf.ContainsKey($g.Id)) { continue }
     $d8 = $numOf[$g.Id][0]; $no = $numOf[$g.Id][1]
     if ($st.근거 -like '추정*') { Chk '확인' $who "거래처 설정이 추정입니다($($st.근거)). 거래처코드 $($st.거래처코드), 부가세사업장 $($st.부가세사업장), 적요를 확인해 주세요." }
-    # 라인별 금액
-    $parts = [ordered]@{}; foreach ($lr in $g.L) { foreach ($p in $lr.라인.Keys) { $parts[$p] = [double]$parts[$p] + $lr.라인[$p] }; if ($lr.기타) { Chk '확인' $who "라인별 매출확정 $($lr.행)행에 '$($lr.기타)' 금액이 있습니다(라인을 정할 수 없어 넣지 않음). 맞는지 봐 주세요." } }
-    $tot = ($g.I | Measure-Object 금액 -Sum).Sum
+    # 라인별 금액 (사람이 나눈 표가 있으면 그 표, 없으면 라인별 매출확정)
+    $pjOf = @{}; $rmkOf = @{}; $tot = ($g.I | Measure-Object 금액 -Sum).Sum
+    if ($g.나눔) { $parts = [ordered]@{}; foreach ($e in $g.나눔) { $parts[$e.라인] = [double]$parts[$e.라인] + $e.금액; if ($e.프로젝트) { $pjOf[$e.라인] = $e.프로젝트 }; if ($e.적요) { $rmkOf[$e.라인] = $e.적요 } } }
+    else { $parts = [ordered]@{}; foreach ($lr in $g.L) { foreach ($p in $lr.라인.Keys) { $parts[$p] = [double]$parts[$p] + $lr.라인[$p] }; if ($lr.기타) { Chk '확인' $who "라인별 매출확정 $($lr.행)행에 '$($lr.기타)' 금액이 있습니다(라인을 정할 수 없어 넣지 않음). 맞는지 봐 주세요." } } }
     if ($parts.Count -eq 0) { $parts['사형'] = $tot; Chk '에러' $who "라인별 금액이 없어 전액을 사형 한 줄로 넣었습니다." }
     $sum = 0.0; foreach ($p in @($parts.Keys)) { $sum += $parts[$p] }
     # 차이는 가공3 줄에서 맞춤(없으면 가장 큰 줄) — 9월 STX 방산 144,810,010 → 144,810,000을 실제 전표에서 가공3으로 맞춘 것과 같게
     if ([Math]::Abs($sum - $tot) -ge 0.5) { $big = if ($parts.Contains('가공3')) { '가공3' } else { @($parts.Keys | Sort-Object { -[Math]::Abs($parts[$_]) })[0] }; $parts[$big] = $parts[$big] + ($tot - $sum)
       Chk '확인' $who "라인별 합계($('{0:N0}' -f $sum))가 세금계산서 금액($('{0:N0}' -f $tot))과 $('{0:N0}' -f ($tot - $sum))원 달라, 차이를 '$big' 줄에서 맞췄습니다(세금계산서 금액 기준, 9월 실제 전표와 같은 방법)." }
-    if (@($g.I).Count -gt 1) { Chk '확인' $who "세금계산서 $(@($g.I).Count)장($((($g.I | ForEach-Object { '{0:N0}' -f $_.금액 }) -join ' + ')))이 라인별 매출확정에는 한 줄로 합쳐져 있어, 전표 1장에 부가세·외상 줄을 세금계산서마다 넣었습니다. 세금계산서별로 라인을 알려 주시면 전표를 나누겠습니다." }
-    foreach ($lr in $g.L) { if ($lr.비고 -and $lr.비고 -ne '0') { Chk '참고' $who "라인별 매출확정 $($lr.행)행 비고: '$($lr.비고)'" } }
-    foreach ($iv in $g.I) { if (@($iv.종류).Count -gt 1) { Chk '확인' $who "세금계산서 $($iv.번호) 한 장에 '$($iv.종류 -join ' / ')'가 같이 있습니다. 라인별 매출확정대로 넣었습니다($((($parts.Keys | ForEach-Object { "$_ $('{0:N0}' -f $parts[$_])" }) -join ', '))). 적요를 나눠야 하면 알려 주세요." } }
+    if (@($g.I).Count -gt 1 -and -not $g.나눔) { Chk '확인' $who "세금계산서 $(@($g.I).Count)장($((($g.I | ForEach-Object { '{0:N0}' -f $_.금액 }) -join ' + ')))이 라인별 매출확정에는 한 줄로 합쳐져 있어, 전표 1장에 부가세·외상 줄을 세금계산서마다 넣었습니다. 세금계산서별로 라인을 알려 주시면 전표를 나누겠습니다." }
+    if (-not $g.나눔) { foreach ($lr in $g.L) { if ($lr.비고 -and $lr.비고 -ne '0') { Chk '참고' $who "라인별 매출확정 $($lr.행)행 비고: '$($lr.비고)'" } } }
+    foreach ($iv in $g.I) { if (@($iv.종류).Count -gt 1 -and -not $g.나눔) { Chk '확인' $who "세금계산서 $($iv.번호) 한 장에 '$($iv.종류 -join ' / ')'가 같이 있습니다. 라인별 매출확정대로 넣었습니다($((($parts.Keys | ForEach-Object { "$_ $('{0:N0}' -f $parts[$_])" }) -join ', '))). 적요를 나눠야 하면 알려 주세요." } }
     $ln = 0
     foreach ($p in $parts.Keys) { $ln++
-      $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 4; 계정과목 = 4130000; 거래처 = $st.거래처코드; 거래처명 = $st.거래처명; 계정금액 = [double]$parts[$p]; 증빙코드 = ''; 적요 = ($st.라인적요 -replace '\{라인\}', $p); 부가세사업장 = ''; 신고기준일 = ''; 세무구분 = ''; 공급가액 = $null; 전자 = ''; 승인번호 = ''; 프로젝트 = $projFor[$p]; 품의내역 = $st.품의내역; 전표유형 = '3'; 순서 = $g.L[0].행; 묶음 = $g.Id }) | Out-Null }
+      $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 4; 계정과목 = 4130000; 거래처 = $st.거래처코드; 거래처명 = $st.거래처명; 계정금액 = [double]$parts[$p]; 증빙코드 = ''; 적요 = $(if ($rmkOf[$p]) { $rmkOf[$p] } else { $st.라인적요 -replace '\{라인\}', $p }); 부가세사업장 = ''; 신고기준일 = ''; 세무구분 = ''; 공급가액 = $null; 전자 = ''; 승인번호 = ''; 프로젝트 = $(if ($pjOf[$p]) { $pjOf[$p] } else { ProjOf $p }); 품의내역 = $st.품의내역; 전표유형 = '3'; 순서 = $g.L[0].행; 묶음 = $g.Id }) | Out-Null }
     $vatSum = 0.0; $ivInfo = @()
     foreach ($iv in ($g.I | Sort-Object 날짜, 번호)) {
       $iss = IssNo $iv.번호; $tx = $iv.tx
