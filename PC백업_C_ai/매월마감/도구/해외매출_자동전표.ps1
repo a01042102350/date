@@ -134,12 +134,12 @@ try {
     foreach ($kk in $parts.Keys) { $ln++
       $proj = if ($kk -eq '금형' -or $kk -eq '금형스크랩') { $cu.금형프로젝트 } elseif ($kk -eq '사형스크랩') { '101' } else { $projFor[$kk] }
       $nm = switch ($kk) { '사형' { $cu.사형이름 } '금형' { $cu.금형이름 } '사형스크랩' { $cu.사형이름 + '스크랩' } '금형스크랩' { $cu.금형이름 + '스크랩' } default { $kk } }
-      $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 4; 계정과목 = 4140000; 거래처 = $cu.거래처코드; 거래처명 = $cu.거래처명; 계정금액 = [double]$parts[$kk]; 증빙코드 = ''; 적요 = "$base -$nm"; 부가세사업장 = ''; 세무구분 = ''; 공급가액 = $null; 환종 = ''; 외화금액 = $null; 환율 = $null; 수출신고번호 = ''; 프로젝트 = "$proj"; 관리환율 = $rtT; 관리외화 = [double]$fxParts[$kk]; 관리세무 = $TaxType; 인보이스 = $x.인보이스 }) | Out-Null }
+      $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 4; 계정과목 = 4140000; 거래처 = $cu.거래처코드; 거래처명 = $cu.거래처명; 계정금액 = [double]$parts[$kk]; 증빙코드 = ''; 적요 = "$base -$nm"; 부가세사업장 = ''; 세무구분 = ''; 공급가액 = $null; 환종 = ''; 외화금액 = $null; 환율 = $null; 수출신고번호 = ''; 프로젝트 = "$proj"; 관리환율 = $rtT; 관리외화 = [double]$fxParts[$kk]; 관리세무 = $TaxType; 통화 = $cu.통화; 인보이스 = $x.인보이스 }) | Out-Null }
     # 원화수출(BERGEN): 부가세 줄 환종 KRW, 외화금액 = 원화, 환율 1 — 사용자 확인 완료 2026-11-11
     $ln++; $cur2 = $cu.통화
-    $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 4; 계정과목 = 2550000; 거래처 = $cu.거래처코드; 거래처명 = $cu.거래처명; 계정금액 = [double]0; 증빙코드 = ''; 적요 = $base; 부가세사업장 = $(if ($siteRow) { $siteRow.부가세사업장코드 } else { '' }); 세무구분 = $TaxType; 공급가액 = [double]$krw; 환종 = $cur2; 외화금액 = $(if ($cur2 -eq 'KRW') { [double]$krw } else { [double]$x.외화 }); 환율 = $(if ($cur2 -eq 'KRW') { [double]1 } elseif ($cur2 -eq 'JPY') { [double]$jpy100 } else { [double]$x.환율 }); 수출신고번호 = $ctNo; 프로젝트 = ''; 관리환율 = $rtT; 관리외화 = $fxTot; 관리세무 = $TaxType; 인보이스 = $x.인보이스 }) | Out-Null
+    $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 4; 계정과목 = 2550000; 거래처 = $cu.거래처코드; 거래처명 = $cu.거래처명; 계정금액 = [double]0; 증빙코드 = ''; 적요 = $base; 부가세사업장 = $(if ($siteRow) { $siteRow.부가세사업장코드 } else { '' }); 세무구분 = $TaxType; 공급가액 = [double]$krw; 환종 = $cur2; 외화금액 = $(if ($cur2 -eq 'KRW') { [double]$krw } else { [double]$x.외화 }); 환율 = $(if ($cur2 -eq 'KRW') { [double]1 } elseif ($cur2 -eq 'JPY') { [double]$jpy100 } else { [double]$x.환율 }); 수출신고번호 = $ctNo; 프로젝트 = ''; 관리환율 = $rtT; 관리외화 = $fxTot; 관리세무 = $TaxType; 통화 = $cu.통화; 인보이스 = $x.인보이스 }) | Out-Null
     $ln++
-    $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 3; 계정과목 = 1080000; 거래처 = $cu.거래처코드; 거래처명 = $cu.거래처명; 계정금액 = [double]$krw; 증빙코드 = '9'; 적요 = $base; 부가세사업장 = ''; 세무구분 = ''; 공급가액 = $null; 환종 = ''; 외화금액 = $null; 환율 = $null; 수출신고번호 = ''; 프로젝트 = ''; 관리환율 = $rtT; 관리외화 = $fxTot; 관리세무 = $TaxType; 인보이스 = $x.인보이스 }) | Out-Null
+    $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 3; 계정과목 = 1080000; 거래처 = $cu.거래처코드; 거래처명 = $cu.거래처명; 계정금액 = [double]$krw; 증빙코드 = '9'; 적요 = $base; 부가세사업장 = ''; 세무구분 = ''; 공급가액 = $null; 환종 = ''; 외화금액 = $null; 환율 = $null; 수출신고번호 = ''; 프로젝트 = ''; 관리환율 = $rtT; 관리외화 = $fxTot; 관리세무 = $TaxType; 통화 = $cu.통화; 인보이스 = $x.인보이스 }) | Out-Null
     $VCH.Add([pscustomobject]@{ 작성일자 = $d8; 작성번호 = $no; 인보이스 = $x.인보이스; 거래처 = $cu.거래처명; 공장 = $x.공장; 부가세사업장 = $(if ($siteRow) { "$($siteRow.부가세사업장코드) $($siteRow.사업장명)" }); 원화 = $krw; 외화 = $x.외화; 환율 = $x.환율; 면장 = $ctNo
         라인 = (($parts.Keys | ForEach-Object { "$_ $('{0:N0}' -f $parts[$_])" }) -join ' / '); 라인출처 = $(if ($sp0) { "$($sp0.출처) '$($sp0.시트)' $($sp0.행)행" } else { '없음' }); 적요 = $base }) | Out-Null }
   $saleSum = ($SALES | Where-Object { $_.원화 } | Measure-Object 원화 -Sum).Sum; $vSum = ($VCH | Measure-Object 원화 -Sum).Sum
@@ -164,7 +164,9 @@ try {
         if ($textCols -contains ($c + 1)) { $data.SetValue([object][string]$val, [int]$i, [int]$c) } else { $data.SetValue([object][double]$val, [int]$i, [int]$c) } } }
     $sh.Range($sh.Cells(4, 1), $sh.Cells(3 + $n, 22)).Value2 = $data
     # 보기 좋게 쉼표 표시 (값은 숫자 그대로): 계정금액·공급가액 원 단위, 외화금액(P·U) 소수 둘째, 환율(Q·T) 소수 둘째~넷째 (사용자 지정 2026-11-11)
-    foreach ($fmt in @(@(9, '#,##0'), @(14, '#,##0'), @(16, '#,##0.00'), @(21, '#,##0.00'), @(17, '#,##0.00##'), @(20, '#,##0.00##'))) { $sh.Range($sh.Cells(4, $fmt[0]), $sh.Cells(3 + $n, $fmt[0])).NumberFormat = $fmt[1] } }
+    foreach ($fmt in @(@(9, '#,##0'), @(14, '#,##0'), @(16, '#,##0.00'), @(21, '#,##0.00'), @(17, '#,##0.00##'), @(20, '#,##0.00##'))) { $sh.Range($sh.Cells(4, $fmt[0]), $sh.Cells(3 + $n, $fmt[0])).NumberFormat = $fmt[1] }
+    # 엔화·원화 줄은 외화금액(P·U)을 소수 없이 (달러만 소수 둘째 자리) — 사용자 지정 2026-11-11
+    for ($i = 0; $i -lt $n; $i++) { if ($LINES[$i].통화 -eq 'JPY' -or $LINES[$i].통화 -eq 'KRW') { foreach ($cc in 16, 21) { $sh.Cells(4 + $i, $cc).NumberFormat = '#,##0' } } } }
   $wb.Save(); $wb.Close($false)
   Say "  업로드 파일: $upload" 'Green'
 
