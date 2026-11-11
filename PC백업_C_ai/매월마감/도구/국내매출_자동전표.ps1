@@ -18,7 +18,14 @@ $baseDir = Join-Path $root '국내자동전표'; $monDir = Join-Path $baseDir $Y
 function FindFile([string[]]$pats, [string[]]$dirs) { foreach ($d in $dirs) { if (-not (Test-Path -LiteralPath $d)) { continue }; foreach ($p in $pats) { $f = Get-ChildItem -LiteralPath $d -File | Where-Object { $_.Name -like $p -and $_.Name -notlike '~$*' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($f) { return $f.FullName } } }; $null }
 if (-not $LineFile) { $LineFile = FindFile @("*$($Y)년$($M)월*라인별*매출확정*.xlsx", "*$($Y)년 $($M)월*라인별*매출확정*.xlsx", '*라인별*매출확정*.xlsx') @($monDir, $baseDir) }
 if (-not $CloseFile) { $CloseFile = FindFile @("*$($Y)년$($M)월*매출마감*확정*.xlsx", "*$($Y)년 $($M)월*매출마감*확정*.xlsx", '*매출마감*확정*.xlsx') @($monDir, $baseDir) }
-if (-not $TaxFile) { $TaxFile = FindFile @('acb2050*.xlsx') @($monDir, $baseDir, "C:\ai\기초자료\$YM") }
+# 세금계산서 목록 후보: ① 홈택스 '매출전자세금계산서목록' (가장 정확, 수정세금계산서까지 다 있음) → ② 아마란스 세금계산서 목록 acb2050…
+#  이번 달 작성분이 들어 있는 첫 파일을 씀 (다른 달 파일이 같은 폴더에 있어도 괜찮게)
+$taxCands = @(); $sumCands = @()
+if ($TaxFile) { $taxCands = @($TaxFile) } else {
+  foreach ($pat in '*매출전자세금계산서목록*.xls*', 'acb2050*.xlsx') { foreach ($d in @($monDir, $baseDir, "C:\ai\기초자료\$YM")) { if (Test-Path -LiteralPath $d) { $taxCands += @(Get-ChildItem -LiteralPath $d -File | Where-Object { $_.Name -like $pat -and $_.Name -notlike '~$*' } | Sort-Object LastWriteTime -Descending | ForEach-Object { $_.FullName }) } } } }
+foreach ($d in @($monDir, $baseDir, "C:\ai\기초자료\$YM")) { if (Test-Path -LiteralPath $d) { $sumCands += @(Get-ChildItem -LiteralPath $d -File | Where-Object { $_.Name -like '*매출명세서목록*.xls*' -and $_.Name -notlike '~$*' } | Sort-Object LastWriteTime -Descending | ForEach-Object { $_.FullName }) } }
+# 홈택스 공급자 종사업장번호 → 아마란스 부가세사업장 (2026-10 홈택스 목록: 종사업장 1 = 다이헨·맥시스·알멕 물품대·신우테크윈·아트라스 = 아마란스 '대신금속(주)마산3', 빈칸 = 본점)
+$JONG = @{ '' = '1000'; '1' = '4000' }
 if (-not $LineSheet) { $LineSheet = "$($M)월" }; if (-not $CloseSheet) { $CloseSheet = $ym4 }
 if (-not $OutDir) { $OutDir = $monDir }
 $template = Join-Path $baseDir '자동전표처리(일반) 양식.xlsx'; if (-not (Test-Path -LiteralPath $template)) { $template = Join-Path $root '해외자동전표\자동전표처리(일반) 양식.xlsx' }
@@ -53,7 +60,6 @@ Say "══ $($Y)년 $($M)월 국내매출 자동전표 ══" 'Cyan'
 foreach ($f in $LineFile, $CloseFile, $template) { if (-not $f -or -not (Test-Path -LiteralPath $f)) { throw "파일이 없습니다: $f (국내자동전표 폴더에 라인별 매출확정·매출마감 확정 파일을 넣어 주세요)" } }
 Say "  라인별 매출확정: $([IO.Path]::GetFileName($LineFile)) / 시트 $LineSheet"
 Say "  매출마감 확정: $([IO.Path]::GetFileName($CloseFile)) / 시트 $CloseSheet"
-Say "  세금계산서 목록: $(if ($TaxFile) { [IO.Path]::GetFileName($TaxFile) } else { '없음(세액은 계산)' })"
 
 $xl = New-Object -ComObject Excel.Application; $xl.DisplayAlerts = $false
 try {
@@ -95,7 +101,6 @@ try {
     $amt = NumV $v[$r, $cAmt]; if (-not $amt -or [Math]::Abs($amt) -lt 0.5) { continue }
     if (IsExcl $k) { continue }
     if (-not $no -and -not "$($v[$r,$cKind])".Trim()) { continue }   # 번호·종류 없이 금액만 있는 줄 = 소계('계' 글자가 빠진 줄, 예: 9월 엘에스엠트론 110행)
-    if (-not $no) { Chk '확인' $curName "매출마감 확정 $($r)행에 세금계산서 번호 없이 실적 $('{0:N0}' -f $amt)원이 있습니다. 세금계산서로 보고 넣었습니다." }
     $id = if ($no) { "$k|$no" } else { "$k|행$r" }
     if (-not $INV.Contains($id)) { $INV[$id] = [pscustomobject]@{ 키 = $k; 이름 = $curName; 번호 = $no; 금액 = 0.0; 종류 = @(); 날짜 = (ToDate $v[$r, $cBL] $no); BL = $v[$r, $cBL]; 행 = @(); 짝 = $false; tx = $null } }
     $iv = $INV[$id]; $iv.금액 += [Math]::Round($amt, 0); $iv.종류 += "$("$($v[$r,$cKind])".Trim()) $('{0:N0}' -f $amt)"; $iv.행 += $r
