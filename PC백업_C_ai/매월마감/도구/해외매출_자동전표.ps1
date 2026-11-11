@@ -5,8 +5,9 @@
 #  - 줄: 국외매출(4140000, 대변) 라인별 여러 줄(프로젝트) → 부가세예수금(2550000, 대변 0원) → 외상매출금(1080000, 차변, 증빙 9)
 #  - 라인별 금액 = 해외영업팀 '인보이스별 상세'(신코·코마츠는 지출품의서 마감)의 사형·자동·금형·가공1·가공2·가공3·스크랩 칸
 #  - 적요 = "인보이스 품명 $외화*@환율 -라인이름"(부가세·외상 줄은 라인이름 없음), 관세는 전표를 따로
+#  - 툴링비 적요 = "인보이스(툴링비) $외화*@환율" (품명 없음), 작성번호 = 날짜마다 1000부터 (2026-11-11 사용자 지정)
 #  - 회계단위 1000 고정, 부가세 사업장 = 수출 파일 공장(마산1·마산2…) → 해외전표_사업장.csv
-param([Parameter(Mandatory = $true)][string]$YM, [string]$ResultFile, [string]$SheetName, [string]$DetailFile, [string[]]$JpSources, [string]$OutDir, [string]$CompareCsv, [string]$TaxType = '16')
+param([Parameter(Mandatory = $true)][string]$YM, [string]$ResultFile, [string]$SheetName, [string]$DetailFile, [string[]]$JpSources, [string]$OutDir, [string]$CompareCsv, [string]$TaxType = '16', [int]$StartNo = 1000)
 $ErrorActionPreference = 'Stop'
 $root = 'C:\ai\매월마감'; $toolDir = Split-Path $MyInvocation.MyCommand.Path
 $Y = [int]$YM.Substring(0, 4); $M = [int]$YM.Substring(4, 2); $cur = [DateTime]::new($Y, $M, 1); $MM = $cur.ToString('MM'); $ym4 = $cur.ToString('yyMM')
@@ -90,10 +91,12 @@ try {
     if ($x.인보이스 -notmatch '^(DSM\d{4}-|\d{4}P)') { Chk '에러' $x.인보이스 "인보이스 형식이 아니라 정정 줄로 보여 전표를 만들지 않았습니다(원화 $('{0:N0}' -f $x.원화)). 필요하면 해당 전표에 직접 반영해 주세요."; continue }
     if ($null -eq $x.원화 -or [Math]::Abs([double]$x.원화) -lt 1) { Chk '알림' $x.인보이스 '원화가 0원(무상 샘플 등)이라 전표를 만들지 않았습니다.'; continue }
     if (-not $cu.거래처코드) { Chk '확인' $x.인보이스 "거래처 '$($cu.거래처명)'의 거래처코드가 없습니다(새 거래처). 업로드 전에 거래처코드를 넣어 주세요." }
-    $d8 = $x.BL.ToString('yyyyMMdd'); if (-not $seqByDate.ContainsKey($d8)) { $seqByDate[$d8] = 0 }; $seqByDate[$d8]++; $no = $seqByDate[$d8]
+    # 작성번호: 날짜마다 $StartNo(1000)부터 1씩 (사용자 지정 2026-11-11 — 손으로 넣는 전표 번호와 안 겹치게)
+    $d8 = $x.BL.ToString('yyyyMMdd'); if (-not $seqByDate.ContainsKey($d8)) { $seqByDate[$d8] = $StartNo - 1 }; $seqByDate[$d8]++; $no = $seqByDate[$d8]
     $invTxt = $x.인보이스 -replace '\s', ''
-    $desc = if ($x.관세 -and $cu.관세품명) { $cu.관세품명 } elseif ($x.툴링 -and $cu.툴링품명) { $cu.툴링품명 } else { $cu.품명 }
-    if ($x.툴링) { Chk '확인' $x.인보이스 "툴링비 전표는 9월에 예가 없어 적요 품명을 '$desc'(으)로 넣었습니다. 평소 쓰시는 품명으로 바꿔 주세요." }
+    # 툴링비 적요 = "인보이스(툴링비) 금액" — 품명 없음 (사용자 지정 2026-11-11). 거래처 설정 툴링품명 칸에 값을 넣으면 그 품명을 씀
+    if ($x.툴링 -and $invTxt -notmatch '\(툴링비\)') { $invTxt += '(툴링비)' }
+    $desc = if ($x.관세 -and $cu.관세품명) { $cu.관세품명 } elseif ($x.툴링) { "$($cu.툴링품명)" } else { $cu.품명 }
     $krw = [Math]::Round([double]$x.원화, 0)
     $amtTxt = switch ($cu.통화) { 'JPY' { '¥' + ('{0:N2}' -f $x.외화) + '*@' + ([double]$x.환율).ToString('0.####') } 'KRW' { '\' + ('{0:N0}' -f $krw) } default { '$' + ('{0:N2}' -f $x.외화) + '*@' + ('{0:N2}' -f $x.환율) } }
     $base = ("$invTxt $desc $amtTxt" -replace '\s+', ' ').Trim()
@@ -117,7 +120,7 @@ try {
       $proj = if ($kk -eq '금형' -or $kk -eq '금형스크랩') { $cu.금형프로젝트 } elseif ($kk -eq '사형스크랩') { '101' } else { $projFor[$kk] }
       $nm = switch ($kk) { '사형' { $cu.사형이름 } '금형' { $cu.금형이름 } '사형스크랩' { $cu.사형이름 + '스크랩' } '금형스크랩' { $cu.금형이름 + '스크랩' } default { $kk } }
       $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 4; 계정과목 = 4140000; 거래처 = $cu.거래처코드; 거래처명 = $cu.거래처명; 계정금액 = [double]$parts[$kk]; 증빙코드 = ''; 적요 = "$base -$nm"; 부가세사업장 = ''; 세무구분 = ''; 공급가액 = $null; 환종 = ''; 외화금액 = $null; 환율 = $null; 수출신고번호 = ''; 프로젝트 = "$proj"; 인보이스 = $x.인보이스 }) | Out-Null }
-    if ($cu.통화 -eq 'KRW') { Chk '확인' $x.인보이스 "원화수출이라 부가세 줄의 환종을 KRW, 외화금액 = 원화, 환율 = 1로 넣었습니다. 평소와 같은지 확인해 주세요." }
+    # 원화수출(BERGEN): 부가세 줄 환종 KRW, 외화금액 = 원화, 환율 1 — 사용자 확인 완료 2026-11-11
     $ln++; $cur2 = $cu.통화
     $LINES.Add([pscustomobject]@{ 회계단위 = '1000'; 작성일자 = $d8; 작성번호 = $no; 라인순번 = $ln; 차대구분 = 4; 계정과목 = 2550000; 거래처 = $cu.거래처코드; 거래처명 = $cu.거래처명; 계정금액 = [double]0; 증빙코드 = ''; 적요 = $base; 부가세사업장 = $(if ($siteRow) { $siteRow.부가세사업장코드 } else { '' }); 세무구분 = $TaxType; 공급가액 = [double]$krw; 환종 = $cur2; 외화금액 = $(if ($cur2 -eq 'KRW') { [double]$krw } else { [double]$x.외화 }); 환율 = $(if ($cur2 -eq 'KRW') { [double]1 } else { [double]$x.환율 }); 수출신고번호 = $ctNo; 프로젝트 = ''; 인보이스 = $x.인보이스 }) | Out-Null
     $ln++
