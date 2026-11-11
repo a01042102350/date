@@ -127,7 +127,8 @@ try {
     $fxTot = if ($cu.통화 -eq 'KRW') { [double]$krw } else { [Math]::Round([double]$x.외화, 4) }   # 수출 파일 외화 그대로(관세 등 소수 셋째 자리 있음)
     $rtT = if ($cu.통화 -eq 'KRW') { [double]1 } elseif ($cu.통화 -eq 'JPY') { [double]$jpy100 } else { [double]$x.환율 }
     $fxParts = [ordered]@{}; $fxSum = 0.0
-    foreach ($kk in $parts.Keys) { $fv = if ($krw) { [Math]::Round($fxTot * $parts[$kk] / $krw, 2) } else { 0.0 }; $fxParts[$kk] = $fv; $fxSum += $fv }
+    $fxDec = if ($cu.통화 -eq 'JPY' -or $cu.통화 -eq 'KRW') { 0 } else { 2 }   # 엔화·원화는 소수 없는 단위라 라인도 정수로 나눔 (2026-11-11)
+    foreach ($kk in $parts.Keys) { $fv = if ($krw) { [Math]::Round($fxTot * $parts[$kk] / $krw, $fxDec) } else { 0.0 }; $fxParts[$kk] = $fv; $fxSum += $fv }
     if ($parts.Count -and [Math]::Abs($fxSum - $fxTot) -ge 0.00005) { $bigF = @($parts.Keys | Sort-Object { -$parts[$_] })[0]; $fxParts[$bigF] = [Math]::Round($fxParts[$bigF] + ($fxTot - $fxSum), 4) }
     $ln = 0
     foreach ($kk in $parts.Keys) { $ln++
