@@ -217,7 +217,7 @@ try {
       $pa = @{}; foreach ($lr in $g.L) { foreach ($p in $lr.라인.Keys) { $pa[$projFor[$p]] = [double]$pa[$projFor[$p]] + $lr.라인[$p] } }
       $pb = @{}; foreach ($o in $ovs.Values) { foreach ($e in $o) { $pj0 = if ($e.프로젝트) { $e.프로젝트 } else { ProjOf $e.라인 }; $pb[$pj0] = [double]$pb[$pj0] + $e.금액 } }
       $dif = @(); foreach ($pj0 in (@($pa.Keys) + @($pb.Keys) | Select-Object -Unique)) { if ([Math]::Abs([double]$pa[$pj0] - [double]$pb[$pj0]) -ge 0.5) { $dif += "프로젝트 $pj0 라인별 매출확정 $('{0:N0}' -f [double]$pa[$pj0]) / 나눈 표 $('{0:N0}' -f [double]$pb[$pj0])" } }
-      if ($dif.Count) { Chk '확인' $who "라인나누기.csv대로 넣었는데 프로젝트별 합계가 라인별 매출확정과 다릅니다: $($dif -join ', ')" }
+      if ($dif.Count) { Chk '참고' $who "라인나누기.csv(사용자가 나눈 라인)대로 넣었습니다. 프로젝트별 합계는 라인별 매출확정 칸과 다릅니다(표가 우선): $($dif -join ', ')" }
       else { Chk '참고' $who "라인나누기.csv(사용자가 나눈 라인)대로 세금계산서 $($ivs.Count)장을 전표 $($ivs.Count)장으로 넣었습니다. 프로젝트별 합계는 라인별 매출확정과 같습니다." }
       foreach ($iv in $ivs) { $ovUsed[$iv.번호] = $true; $UNITS.Add([pscustomobject]@{ Id = $UNITS.Count + 1; 설정 = $g.설정; L = $g.L; I = @($iv); 나눔 = $ovs[$iv.번호] }) | Out-Null } }
     else { $UNITS.Add([pscustomobject]@{ Id = $UNITS.Count + 1; 설정 = $g.설정; L = $g.L; I = $ivs; 나눔 = $null }) | Out-Null } }
@@ -280,7 +280,16 @@ try {
   Chk '참고' '' "공급가액 합계: 전표 $('{0:N0}' -f $vSum)원 / 라인별 매출확정(신코·코마츠 제외) $('{0:N0}' -f $lSum)원 / 매출마감 확정 세금계산서(신코·코마츠 제외) $('{0:N0}' -f $iSum)원 → 차이 $('{0:N0}' -f ($vSum - $iSum))원"
   # 세금계산서 목록에만 있는 것
   $onlySum = 0.0
-  foreach ($t in ($TAX | Where-Object { -not $_.씀 })) { $onlySum += $t.공급가액; $known = @($CUST.Values | Where-Object { TaxHit $t $_ }).Count -gt 0
+  # 발행·취소 쌍(같은 거래처, +금액과 −금액, 더하면 0원)은 전표를 넣지 않음 — 2026-11-11 사용자: 10월 STX 142,818,303 발행·취소 쌍은 넣지 않아도 됨
+  $pairOf = @{}; $left = @($TAX | Where-Object { -not $_.씀 })
+  for ($a0 = 0; $a0 -lt $left.Count; $a0++) { if ($pairOf.ContainsKey($a0) -or $left[$a0].공급가액 -le 0) { continue }
+    for ($b0 = 0; $b0 -lt $left.Count; $b0++) { if ($b0 -eq $a0 -or $pairOf.ContainsKey($b0)) { continue }
+      if ([Math]::Abs($left[$a0].공급가액 + $left[$b0].공급가액) -lt 0.5 -and (NormKey $left[$a0].거래처명) -eq (NormKey $left[$b0].거래처명)) { $pairOf[$a0] = $b0; $pairOf[$b0] = $a0; break } } }
+  for ($i0 = 0; $i0 -lt $left.Count; $i0++) { if (-not $pairOf.ContainsKey($i0)) { continue }; $t = $left[$i0]
+    $known = @($CUST.Values | Where-Object { TaxHit $t $_ }).Count -gt 0; if (-not $known) { continue }   # 제품 거래처가 아닌 쌍(동우자원 등)은 아래에서 '제품 매출 아님'으로 보여 줌
+    $onlySum += $t.공급가액; $t | Add-Member -NotePropertyName 쌍 -NotePropertyValue $true -Force
+    if ($known) { Chk '참고' $t.거래처명 "발행·취소 쌍이라(더하면 0원) 전표를 넣지 않았습니다: $($t.작성일.ToString('MM-dd')) $($t.거래처명) 공급가액 $('{0:N0}' -f $t.공급가액)$(if ($t.분류) { " ($($t.분류))" })$(if ($t.비고) { ", $($t.비고)" })" } }
+  foreach ($t in ($TAX | Where-Object { -not $_.씀 -and -not $_.쌍 })) { $onlySum += $t.공급가액; $known = @($CUST.Values | Where-Object { TaxHit $t $_ }).Count -gt 0
     if ("$($t.품목) $($t.비고)" -match '외주가공|임대|임차|고철|스크랩|매각|차량') { $known = $false }   # 같은 거래처라도 제품 매출이 아닌 것(예: 알멕 외주가공비 = 마산6)
     $desc = "$($t.작성일.ToString('MM-dd')) $($t.거래처명) 공급가액 $('{0:N0}' -f $t.공급가액) ($(if ($t.분류) { "$($t.분류), " })품목 $($t.품목)$(if ($t.비고) { ", $($t.비고)" })$(if ($t.전표) { ", 아마란스 전표: $($t.전표)" }))"
     if ($known) { Chk '알림' $t.거래처명 "아마란스 세금계산서 목록에는 있는데 매출마감 확정에 없어 전표를 만들지 않았습니다: $desc. 수정세금계산서(발행·취소)이면 9월 브이텍스처럼 따로 넣어 주세요." }
