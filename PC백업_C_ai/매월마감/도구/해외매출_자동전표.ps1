@@ -48,10 +48,13 @@ try {
   $wb = $xl.Workbooks.Open($ResultFile, 0, $true); $ws = $null; foreach ($s0 in $wb.Worksheets) { if (($s0.Name -replace '\s', '') -eq ($SheetName -replace '\s', '')) { $ws = $s0 } }
   if (-not $ws) { throw "수출 파일에 '$SheetName' 시트가 없습니다." }
   $hdr = 0; for ($q = 5; $q -le 80; $q++) { if ($ws.Cells($q, 1).Text -match '^◆') { $hdr = $q; break } }
-  $SALES = New-Object Collections.Generic.List[object]
+  $SALES = New-Object Collections.Generic.List[object]; $CARRY = New-Object Collections.Generic.List[object]
   for ($q = $hdr + 3; $q -le 800; $q++) { $a1 = "$($ws.Cells($q,1).Value2)".Trim(); if ($a1 -match '총\s*계') { break }
     $invRaw = "$($ws.Cells($q,3).Value2)".Trim(); if (-not $invRaw) { continue }
-    if ("$($ws.Cells($q,11).Formula)".Trim()) { continue }   # 다음 달 이월(회색) 제외
+    # 다음 달 이월 제외: '이월' 칸(K)에 금액이 있거나, 인보이스·면장번호 칸이 회색이면 뺌 (사용자 지정 2026-11-11 "회색은 자동전표에서 빼줘")
+    $isGray = $false; foreach ($gc in 3, 4) { $cv = [int64]$ws.Cells($q, $gc).Interior.Color; $rr = $cv % 256; $gg = [int64][Math]::Floor($cv / 256) % 256; $bb = [int64][Math]::Floor($cv / 65536) % 256; if ($rr -eq $gg -and $gg -eq $bb -and $cv -ne 16777215) { $isGray = $true } }
+    $hasCarry = [bool]"$($ws.Cells($q,11).Formula)".Trim()
+    if ($hasCarry -or $isGray) { $CARRY.Add([pscustomobject]@{ 인보이스 = $invRaw; BL = $ws.Cells($q, 6).Text; 원화 = (NumV $ws.Cells($q, 9).Value2); 회색 = $isGray; 이월칸 = $hasCarry }) | Out-Null; continue }
     $key = if ($a1 -like 'ALLISON*') { 'ALLISON' } else { $a1 }
     if ($key -like 'ATLAS*') { continue }                    # ATLAS는 국내(전자세금계산서) 매출이라 해외 전표 아님
     $bl = $ws.Cells($q, 6).Value2
@@ -59,6 +62,11 @@ try {
         BL = $(if ($bl -is [double]) { [DateTime]::FromOADate($bl) } else { $null }); 환율 = (NumV $ws.Cells($q, 7).Value2); 환율글 = ($ws.Cells($q, 7).Text -replace '\s', ''); 외화 = (NumV $ws.Cells($q, 8).Value2); 원화 = (NumV $ws.Cells($q, 9).Value2)
         관세 = ($invRaw -match '관세'); 툴링 = ($invRaw -match '툴링') }) | Out-Null }
   $wb.Close($false)
+  if ($CARRY.Count) {
+    $cs = 0.0; foreach ($c0 in $CARRY) { if ($c0.원화) { $cs += $c0.원화 } }
+    Chk '참고' '' "다음 달 이월(회색) $($CARRY.Count)건은 자동전표에서 뺐습니다 — 다음 달 전표에서 처리. 원화 합계 $('{0:N0}' -f $cs)원: $((($CARRY | ForEach-Object { $_.인보이스 }) -join ', '))"
+    foreach ($c0 in ($CARRY | Where-Object { $_.회색 -and -not $_.이월칸 })) { Chk '알림' $c0.인보이스 "회색이라 다음 달 이월로 보고 뺐는데, 수출 파일 '이월' 칸이 비어 있습니다. 이월이 맞는지 봐 주세요." }
+    foreach ($c0 in ($CARRY | Where-Object { $_.이월칸 -and -not $_.회색 })) { Chk '알림' $c0.인보이스 "'이월' 칸에 금액이 있어 뺐는데 회색이 아닙니다. 이월이 맞는지 봐 주세요." } }
   Say "  이번 달 매출 줄(이월·ATLAS 제외): $($SALES.Count)"
 
   # ── ② 라인별 금액 ──
