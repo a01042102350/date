@@ -489,11 +489,31 @@ try {
   $gs.Activate() | Out-Null; $xl.ActiveWindow.SplitRow = 1; $xl.ActiveWindow.SplitColumn = 0; $xl.ActiveWindow.FreezePanes = $true
 
   # 15) 국내매출 시트: MES 국내 출고(신코·코마츠 PDF 건 제외) 고객사별 1줄 + 아마란스 전자세금계산서(매출) 공급가액 비교
-  $kNorm = { param($x) (("$x" -replace '\(주\)|㈜|주식회사|\(유\)|\s', '' -replace '에스앤티', 'SNT' -replace '아트라스콥코코리아|아트라스콥코', 'ATLASKOREA').ToUpper()) }   # 거래처명 대응표
-  $taxF = @(Get-ChildItem $base -File | ? { $_.Name -match '세금계산서|taxData' -and $_.Extension -match '^\.xls' -and $_.Name -notmatch '^~\$' } | sort { if ($_.Name -match "^$mLab") { 0 } else { 1 } }, Name) | select -First 1
+  $kNorm = { param($x) (("$x" -replace '\(주\)|㈜|（주）|주식회사|\(유\)|\s', '' -replace '에스앤티', 'SNT' -replace '디엔솔루션즈', 'DN솔루션즈' -replace '아트라스콥코코리아|아트라스콥코', 'ATLASKOREA').ToUpper()) }   # 거래처명 대응표
+  # 세금계산서: 홈택스 '매출전자세금계산서목록(…).xls'가 있으면 그것(그 달 전체), 없으면 아마란스 acb2050…/세금계산서 파일 (2026-11-12, 10월: 아마란스 파일은 11/3에 뽑아 34매뿐 → 홈택스 52매 사용)
+  $taxF = @(Get-ChildItem $base -File | ? { $_.Name -match '매출전자세금계산서목록' -and $_.Extension -match '^\.xls' -and $_.Name -notmatch '^~\$' } | sort LastWriteTime -Descending) | select -First 1
+  if (-not $taxF) { $taxF = @(Get-ChildItem $base -File | ? { $_.Name -match '세금계산서|taxData' -and $_.Extension -match '^\.xls' -and $_.Name -notmatch '^~\$' } | sort { if ($_.Name -match "^$mLab") { 0 } else { 1 } }, Name) | select -First 1 }
+  $taxLbl = if ($taxF -and $taxF.Name -match '매출전자세금계산서목록') { '홈택스 세금계산서 목록' } else { '아마란스 세금계산서' }
   $tax = @(); $closeYM = $YM   # 마감 월 (작성일 기준으로 이 달만 MES와 비교)
   $toDate = { param($x) if ($x -is [double]) { [DateTime]::FromOADate($x) } else { $p0 = [DateTime]::MinValue; if ([DateTime]::TryParse("$x".Trim(), [ref]$p0)) { $p0 } else { $null } } }
-  if ($taxF) {
+  if ($taxF -and $taxLbl -match '홈택스') {
+    # 홈택스 목록: 머리글 줄(작성일자·승인번호·…), '상호'가 두 번(공급자·공급받는자) → '공급받는자사업자등록번호' 뒤의 상호 = 거래처
+    $wbT = $xl.Workbooks.Open($taxF.FullName, 0, $true); $sT = $wbT.Worksheets.Item(1); $tn = $sT.UsedRange.Rows.Count; $tc = $sT.UsedRange.Columns.Count; $tv = $sT.Range($sT.Cells(1,1), $sT.Cells($tn,$tc)).Value2
+    $th = $null; for ($i = 1; $i -le [math]::Min($tn, 15) -and -not $th; $i++) { $rowTxt = @(1..$tc | % { "$($tv[$i,$_])".Trim() }); if ($rowTxt -contains '작성일자' -and $rowTxt -contains '승인번호') { $th = $i } }
+    if (-not $th) { $wbT.Close($false); throw "홈택스 세금계산서 목록 머리글(작성일자·승인번호)을 못 찾음: $($taxF.Name)" }
+    $hc = @{}; $cBuyer = $null; $cBiz = $null
+    for ($j = 1; $j -le $tc; $j++) { $h = "$($tv[$th,$j])".Trim(); if ($h -eq '공급받는자사업자등록번호') { $cBiz = $j }; if ($h -eq '상호' -and $cBiz -and -not $cBuyer) { $cBuyer = $j }; if ($h -and -not $hc.ContainsKey($h)) { $hc[$h] = $j } }
+    for ($i = $th + 1; $i -le $tn; $i++) {
+      $nm = "$($tv[$i,$cBuyer])".Trim(); if (-not $nm) { continue }
+      $dtW = & $toDate $tv[$i,$hc['작성일자']]; $dtI = & $toDate $tv[$i,$hc['발급일자']]
+      $kd = ("$($tv[$i,$hc['전자세금계산서분류']])" + ' ' + "$($tv[$i,$hc['전자세금계산서종류']])").Trim(); $kd = if ($kd -match '수정') { '수정' } else { '일반' }
+      $tax += [pscustomobject]@{ Name = $nm; Key = (& $kNorm $nm); Biz = "$($tv[$i,$cBiz])".Trim(); D = $(if ($dtW) { $dtW.ToString('MM-dd') } else { '' }); Kind = $kd
+        YM = $(if ($dtW) { $dtW.Year * 100 + $dtW.Month } else { $closeYM }); IssueYM = $(if ($dtI) { $dtI.Year * 100 + $dtI.Month } else { $null }); Issue = $(if ($dtI) { $dtI.ToString('yyyy-MM-dd') } else { '' }); Wrote = $(if ($dtW) { $dtW.ToString('yyyy-MM-dd') } else { '' })
+        Item = "$($tv[$i,$hc['품목명']])".Trim(); Serial = ("$($tv[$i,$hc['승인번호']])".Trim() -replace '-', '')
+        Sup = [double](Num $tv[$i,$hc['공급가액']]); Vat = [double](Num $tv[$i,$hc['세액']]); Tot = [double](Num $tv[$i,$hc['합계금액']]) }
+    }
+    $wbT.Close($false)
+  } elseif ($taxF) {
     $wbT = $xl.Workbooks.Open($taxF.FullName, 0, $true); $sT = $wbT.Worksheets.Item(1); $tv = $sT.UsedRange.Value2; $tn = $sT.UsedRange.Rows.Count; $tc = $sT.UsedRange.Columns.Count
     $th = $null; for ($i = 1; $i -le [math]::Min($tn, 15) -and -not $th; $i++) { $rowTxt = @(1..$tc | % { "$($tv[$i,$_])".Trim() }); if ($rowTxt -contains '거래처명' -and $rowTxt -contains '공급가액') { $th = $i } }
     if (-not $th) { $wbT.Close($false); throw "세금계산서 파일 머리글(거래처명·공급가액)을 못 찾음: $($taxF.Name)" }
@@ -518,7 +538,10 @@ try {
   $daily = @(); $dSheet = "$($closeYM - 200000)"
   $dPath = "$base\$($yy)년 일별마감list.xlsx"; if (-not (Test-Path $dPath)) { $dPath = "$(@(Get-ChildItem $base -File | ? { $_.Name -match '일별마감' -and $_.Extension -match '^\.xls' -and $_.Name -notmatch '^~\$' })[0].FullName)" }
   if ($dPath -and (Test-Path $dPath)) {
-    $wbD = $xl.Workbooks.Open($dPath, 0, $true); $sD = $wbD.Worksheets.Item($dSheet); $dn = $sD.UsedRange.Rows.Count; $dv = $sD.Range("A1:I$dn").Value2; $dfm = $sD.Range("H1:H$dn").Formula; $wbD.Close($false)
+    $wbD = $xl.Workbooks.Open($dPath, 0, $true); $sD = $wbD.Worksheets.Item($dSheet); $dn = $sD.UsedRange.Rows.Count
+    # 10월부터 '매출이월여부' 칸(K열, 예: '11월 이월')이 생김 → 머리글로 찾아 읽음 (2026-11-12)
+    $dHdr = $sD.Range("A1:T1").Value2; $dCarryC = $null; for ($j = 1; $j -le 20; $j++) { if (("$($dHdr[1,$j])" -replace '\s', '') -eq '매출이월여부') { $dCarryC = $j } }
+    $dv = $sD.Range("A1:$(if ($dCarryC -and $dCarryC -gt 9) { $sD.Cells(1,$dCarryC).Address($false,$false) -replace '\d', '' } else { 'I' })$dn").Value2; $dfm = $sD.Range("H1:H$dn").Formula; $wbD.Close($false)
     # 고객사별 하늘색 소계 줄(=SUM(H a:H b)) 범위 = 이번 달 매출(세금계산서와 같음). 소계가 있는 고객사의 범위 밖 줄은 비고가 없어도 이월 (사용자 확인 2026-10-29)
     $covD = @{}; $subK = @{}
     for ($i = 2; $i -le $dn; $i++) { if ("$($dfm[$i,1])" -match '^=SUM\(H(\d+):H(\d+)\)$') { $a1 = [int]$matches[1]; $b1 = [int]$matches[2]; for ($k1 = $a1; $k1 -le $b1; $k1++) { $covD[$k1] = $i }; $subK[(& $kNorm $dv[$a1,2])] = $true } }
@@ -529,9 +552,14 @@ try {
       $k0 = & $kNorm $c0; if ($pdfCustK[$k0]) { continue }       # 신코·코마츠 = 해외매출(PDF 기준)
       $ymD = if ($d0 -is [double]) { $dd = [DateTime]::FromOADate($d0); $dd.Year * 100 + $dd.Month } else { 0 }
       $b0 = "$($dv[$i,9])".Trim(); $q0 = [double](Num $dv[$i,6]); $a0 = [double](Num $dv[$i,8])
-      $cat = if ($b0 -match '불량반출') { 'bad' } elseif ($b0 -match "^$($nextNo)월\s*이월") { 'carry' } elseif ($subK[$k0] -and -not $covD[$i]) { if (-not $b0) { $b0 = '(비고 없음 · 일별마감 소계 범위 밖)' }; 'carry' } elseif ($b0 -match '소급') { 'retro' } elseif ($a0 -lt 0 -or $q0 -lt 0) { 'ret' } elseif ($ymD -eq $closeYM) { 'cur' } elseif ($ymD) { 'prev' } else { 'nodate' }
+      $dKv = if ($dCarryC) { "$($dv[$i,$dCarryC])".Trim() } else { '' }
+      $isBd = "$($dv[$i,8])" -match '불량\s*대체'   # 금액 칸에 '불량대체'(또는 '불량 대체') = 매출 아님 → 소계 밖이어도 이월로 보지 않음
+      $cat = if ($b0 -match '불량반출') { 'bad' }
+             elseif ($b0 -match "^$($nextNo)월\s*이월" -or $dKv -match "^$($nextNo)월\s*이월") { if ($dKv) { $b0 = (@("매출이월여부: $dKv") + @($(if ($b0) { $b0 }))) -join ' / ' }; 'carry' }
+             elseif ($isBd) { if ($ymD -eq $closeYM) { 'cur' } elseif ($ymD) { 'prev' } else { 'nodate' } }
+             elseif ($subK[$k0] -and -not $covD[$i]) { if (-not $b0) { $b0 = '(비고 없음 · 일별마감 소계 범위 밖)' }; 'carry' } elseif ($b0 -match '소급') { 'retro' } elseif ($a0 -lt 0 -or $q0 -lt 0) { 'ret' } elseif ($ymD -eq $closeYM) { 'cur' } elseif ($ymD) { 'prev' } else { 'nodate' }
       # 불량대체: 일별마감 금액 칸(또는 비고)에 '불량대체', 원래 금액은 비고에 적힘 (예: 맥시스 금액 '불량대체' / 비고 9219000) → 매출 아님, MES와 차이 설명용
-      $bd0 = if ("$($dv[$i,8])$b0" -match '불량대체') { $n0 = Num ($b0 -replace '[^\d\.]', ''); if ($n0) { [double]$n0 } else { 0.0 } } else { $null }
+      $bd0 = if ("$($dv[$i,8])$b0" -match '불량\s*대체') { $n0 = Num ($b0 -replace '[^\d\.]', ''); if ($n0) { [double]$n0 } else { 0.0 } } else { $null }
       $daily += [pscustomobject]@{ R = $i; Cust = $c0; Key = $k0; YM = $ymD; Cat = $cat; Q = $q0; A = $a0; B = $b0; BD = $bd0 }
     }
   }
@@ -550,22 +578,44 @@ try {
     if (-not $dom.Contains($gk)) { $dom[$gk] = & $newG $gk (& $kNorm $a.Cust); $dom[$gk] | Add-Member NoteProperty Acc (New-Object System.Collections.ArrayList) }
     [void]$dom[$gk].Acc.Add($a); for ($r = 2; $r -le $last; $r++) { if ($lots[$r] -eq $a.Inv) { [void]$dom[$gk].Rows.Add($r) } }
   }
-  foreach ($x in $daily) { $gk = & $findG $x.Key; if (-not $gk) { $gk = "일별마감:$($x.Cust)"; if (-not $dom.Contains($gk)) { $dom[$gk] = & $newG $x.Cust $x.Key } }; [void]$dom[$gk].Day.Add($x) }
+  # 일별마감 → 고객사: 이름이 하나와만 맞으면 그곳. 여러 곳과 비슷하면(예: 일별마감 '현대로템(주)' ↔ MES '현대로템㈜철차'·'현대로템㈜방산')
+  #   다른 곳은 제 이름 줄(현대로템㈜방산)이 따로 있으므로, 일별마감 줄이 아직 없는 곳 하나로 보냄 (2026-11-12, 10월)
+  $candG = { param($key) $h0 = @($dom.Keys | ? { $dom[$_].Key -eq $key }); if (-not $h0.Count -and $key.Length -ge 2) { $h0 = @($dom.Keys | ? { $dom[$_].Key.Length -ge 2 -and ($dom[$_].Key.StartsWith($key) -or $key.StartsWith($dom[$_].Key)) }) }; ,$h0 }
+  $dayPend = @()
+  foreach ($x in $daily) { $cg = & $candG $x.Key; if ($cg.Count -eq 1) { [void]$dom[$cg[0]].Day.Add($x) } elseif ($cg.Count -gt 1) { $dayPend += $x } else { $gk = "일별마감:$($x.Cust)"; if (-not $dom.Contains($gk)) { $dom[$gk] = & $newG $x.Cust $x.Key }; [void]$dom[$gk].Day.Add($x) } }
+  foreach ($pg in @($dayPend | group Key)) {
+    $cg = @((& $candG $pg.Name) | ? { -not $dom[$_].Day.Count })
+    $gk = if ($cg.Count -eq 1) { $cg[0] } else { "일별마감:$($pg.Group[0].Cust)" }
+    if (-not $dom.Contains($gk)) { $dom[$gk] = & $newG $pg.Group[0].Cust $pg.Name }
+    foreach ($x in $pg.Group) { [void]$dom[$gk].Day.Add($x) }
+  }
   # 작성일이 마감 월이 아닌 세금계산서는 비교에서 빼고 참고로 (전월 = 전월 매출 정정분, 다음 달 = 다음 달 매출)
   $domNote = @()
   foreach ($t in @($tax | ? { $_.YM -ne $closeYM })) {
     $ym0 = "{0}-{1:00}" -f [math]::Floor($t.YM / 100), ($t.YM % 100)
     $why0 = if ($t.YM -lt $closeYM) { "작성일 $($t.Wrote) = 전월($ym0) 매출 정정분 → 이번 달 비교에서 제외 (참고)" } else { "작성일 $($t.Wrote) = $ym0 매출 → 이번 달 비교에서 제외 (참고)" }
-    $domNote += ,@('국내매출', '', $t.Name, "세금계산서 $($t.Wrote) $($t.Kind)", "작성일 $($t.Wrote) / 발급일 $($t.Issue)", ('공급가액 {0:N0} ({1})' -f $t.Sup, $t.Kind), "아마란스 세금계산서 ($($taxF.Name))", $why0)
+    $domNote += ,@('국내매출', '', $t.Name, "세금계산서 $($t.Wrote) $($t.Kind)", "작성일 $($t.Wrote) / 발급일 $($t.Issue)", ('공급가액 {0:N0} ({1})' -f $t.Sup, $t.Kind), "$taxLbl ($($taxF.Name))", $why0)
   }
   $tax = @($tax | ? { $_.YM -eq $closeYM })
-  $taxNon = @()
+  $taxNon = @(); $taxPend = @()
   foreach ($t in $tax) {
     if ($t.Item -match '외주가공비|고철|AL\s*재|차량\s*매각|임차료') { $taxNon += $t; continue }
     $gk = & $findG $t.Key
-    if (-not $gk) { $cand = @($dom.Keys | ? { $dom[$_].Key.Length -ge 2 -and ($dom[$_].Key.StartsWith($t.Key) -or $t.Key.StartsWith($dom[$_].Key)) } | ? { $ms = [double](($dom[$_].Rows | % { [double](Num $v[$_, $C['금액']]) } | measure -Sum).Sum); [math]::Abs($ms - $t.Sup) -lt 1 }); if ($cand.Count -eq 1) { $gk = $cand[0] } }
-    if (-not $gk) { $taxNon += $t; continue }   # 국내매출·국해외 어디에도 없는 거래처 = 제품 외 매출로 보고 비교 안 함
+    if (-not $gk) { $taxPend += $t; continue }
     [void]$dom[$gk].Tax.Add($t)
+  }
+  # 이름이 여러 고객사와 비슷한 세금계산서(예: '현대로템 주식회사' → 철차·방산, 'STX엔진㈜' → 민수·제1사업장): 같은 이름끼리 모아 금액으로 나눔 (2026-11-12)
+  #   ① 모두 합친 금액이 한 곳의 이번 달 매출(일별마감, 없으면 MES 금액)과 같으면 그곳 ② 한 장씩 매출과 같은 곳 ③ 나머지는 매출이 가장 큰 곳
+  $saleOf = { param($g0) $dy0 = @($g0.Day | ? { $_.Cat -in 'cur', 'prev', 'ret', 'retro', 'nodate' }); if ($dy0.Count) { [double](($dy0 | measure A -Sum).Sum) } else { [double](($g0.Rows | % { [double](Num $v[$_, $C['금액']]) } | measure -Sum).Sum) } }
+  foreach ($pg in @($taxPend | group Key)) {
+    $cg = @(& $candG $pg.Name)
+    if (-not $cg.Count) { $taxNon += $pg.Group; continue }   # 국내매출·국해외 어디에도 없는 거래처 = 제품 외 매출로 보고 비교 안 함
+    $sl = @{}; foreach ($k1 in $cg) { $sl[$k1] = & $saleOf $dom[$k1] }
+    $tot1 = [double](($pg.Group | measure Sup -Sum).Sum)
+    $one = @($cg | ? { [math]::Abs($sl[$_] - $tot1) -lt 1 })
+    if ($one.Count -eq 1) { foreach ($t in $pg.Group) { [void]$dom[$one[0]].Tax.Add($t) }; continue }
+    $big = @($cg | sort { $sl[$_] } -Descending)[0]
+    foreach ($t in $pg.Group) { $m1 = @($cg | ? { [math]::Abs($sl[$_] - $t.Sup) -lt 1 }); [void]$dom[$(if ($m1.Count -eq 1) { $m1[0] } else { $big })].Tax.Add($t) }
   }
 
   foreach ($s in @($wb.Worksheets)) { if ($s.Name -eq '국내매출') { $s.Delete() } }
@@ -685,7 +735,7 @@ try {
         if ($khMiss) { $parts += "MES {0} 출고에 없는 회계 건 +{1:N0}" -f $mLab, $khMiss }
         if ([math]::Abs($other) -ge 1) { $parts += "{0}(MES와 일별마감 차이로 판단) {1:+#,##0;-#,##0}" -f $(if ($other -lt 0) { '반품·불량' } else { '단가 소급' }), $other }
         $domShip += ,@('출하기준 금액변동', '국내', $(if ($tx.Count) { "세금계산서 $($tx.Count)매" } else { '일별마감' }), $g.Cust, 'KRW', ((@($rowsG | sort)) -join ', '), $qty, $baseA, $fix, $chg, $null, $null, $null, $null, $(if ($baseA) { '{0:+0.00;-0.00}%' -f ($chg / $baseA * 100) } else { '' }),
-          $(if ($tx.Count) { "아마란스 세금계산서" } else { "일별마감 $mLab 시트" }), ("MES 출하 기준(이월분 제외) → 확정 매출 차이: " + ($parts -join ' / ')))
+          $(if ($tx.Count) { $taxLbl } else { "일별마감 $mLab 시트" }), ("MES 출하 기준(이월분 제외) → 확정 매출 차이: " + ($parts -join ' / ')))
       }
     }
     $ks.Cells($krow, $nK - 1).Value2 = [string]((@('MES') + @($(if ($hasDay) { '일별마감' })) + @($(if ($tx.Count) { '세금계산서' }))) -join ' + ')
