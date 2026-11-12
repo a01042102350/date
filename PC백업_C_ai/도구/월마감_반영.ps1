@@ -455,7 +455,7 @@ try {
       if ($p.Scrap[0]) { $gs.Cells($row, 19).Value2 = [double]$p.Scrap[0] }; if ($p.Scrap[1]) { $gs.Cells($row, 20).Value2 = [double]$p.Scrap[1] }
       $gs.Range($gs.Cells($row,13), $gs.Cells($row,20)).Interior.Color = 15921906
       $gs.Cells($row, 21).Value2 = [string]"$($p.File) 매출내역서(스크랩 별도 칸, 가공은 가공3)"; $nPdf++
-      if (-not $mesMj[$t.Mj]) { $note += "MES $mLab 출고에 없음(전월 출고분)" }
+      if (-not $mesMj[$t.Mj]) { $note += $noMes }
     } else {
       $cmp = if ($l) { [pscustomobject]@{ N = $lineName; Bl = $l.Bl; Rate = $l.Rate; Fc = $l.Usd; Krw = $l.Krw; Mj = $null } } else { $null }
       if ($mesMj[$t.Mj]) {
@@ -628,6 +628,9 @@ try {
           '거래처명(세금계산서)', '작성일', '세금계산서 매수', '공급가액(세금계산서)', '세액', '합계금액', "세금계산서 차이(공급가액-$mLab 매출)") + $cats + @('출처 기준처', '에러내용')
   for ($j = 0; $j -lt $kh.Count; $j++) { $ks.Cells(1, $j + 1).Value2 = [string]$kh[$j] }
   $nK = $kh.Count; $krow = 2; $domShip = @(); $domErr = @(); $domCarry = @(); $taxErr = @()
+  # 사용자 확인 목록 (월 폴더 '확인완료.csv': 거래처,항목,사유,확인일) — 여기 적힌 거래처의 'MES 출고 없음'은 에러 대신 참고 (2026-11-12)
+  $okList = @{}; $okF = "$base\확인완료.csv"
+  if (Test-Path $okF) { foreach ($o0 in @(Import-Csv $okF -Encoding UTF8)) { if ("$($o0.항목)" -match 'MES 출고 없음' -and "$($o0.거래처)".Trim()) { $okList[(& $kNorm $o0.거래처)] = [pscustomobject]@{ Why = "$($o0.사유)".Trim(); D = "$($o0.확인일)".Trim() } } }; "사용자 확인 목록: $($okList.Count)곳 ($okF)" }
   $sumCat = { param($xs, $cats0, $f) [double](($xs | ? { $cats0 -contains $_.Cat } | measure $f -Sum).Sum) }
   foreach ($g in @($dom.Values)) {
     $note = @(); $rowsG = @($g.Rows); $tx = @($g.Tax); $dy = @($g.Day)
@@ -684,7 +687,13 @@ try {
       $ks.Cells($krow, 5).Interior.Color = $RED; $msg = "MES에는 $mLab 출고가 있는데 일별마감에 없음 → 일별마감 누락인지 확인해 주세요"
       $note += $msg; $domErr += ,@('국내매출', "국내매출 R$krow", $g.Cust, '', ('MES 금액 {0:N0}원' -f $amt), '일별마감 없음', "일별마감 $mLab 시트", $msg)
     } elseif ($hasDay -and $shipA) {
-      $ks.Cells($krow, 3).Interior.Color = $RED; $msg = "{0} 매출은 맞음(일별마감 {1:N0}원, {0} 매출에 반영함). 그런데 MES에 출고 입력이 빠져 있음 → MES에 출고를 입력해 주세요" -f $mLab, $shipA
+      $ok0 = $okList[$g.Key]   # 월 폴더 확인완료.csv에 사용자가 정상이라고 확인한 거래처 (예: 10월 알멕·우림 = 금형비 등 MES 출고 없이 매출)
+      if ($ok0) {
+        $ks.Cells($krow, 3).Interior.Color = 10284031   # 연한 노랑 = 확인해서 정상으로 둔 칸
+        $msg = "{0} 매출은 맞음(일별마감 {1:N0}원, {0} 매출에 반영함). MES 출고는 없지만 정상으로 확인함: {2} (사용자 확인 {3}, 참고)" -f $mLab, $shipA, $ok0.Why, $ok0.D
+      } else {
+        $ks.Cells($krow, 3).Interior.Color = $RED; $msg = "{0} 매출은 맞음(일별마감 {1:N0}원, {0} 매출에 반영함). 그런데 MES에 출고 입력이 빠져 있음 → MES에 출고를 입력해 주세요" -f $mLab, $shipA
+      }
       $note += $msg; $domErr += ,@('국내매출', "국내매출 R$krow", $g.Cust, '', 'MES 없음', ('일별마감 금액 {0:N0}원' -f $shipA), "일별마감 $mLab 시트", $msg)
     }
     # ② 세금계산서 vs 일별마감 매출 → 다르면 '전자세금계산서 금액 오류' 시트 (15)
