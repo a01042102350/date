@@ -11,7 +11,8 @@
 #   - 6칸 = 수량×주조비 → 라인(사형·자동·금형 주조), 나머지 → 가공(가공1·2·3). 신코·코마츠는 매출내역서 금액을 줄별로 나눔(연회색)
 #   - 확인 시트 4장: 면장불일치·환율불일치·달러불일치·라인구분불일치 (월마감_반영이 오류목록으로 합친 뒤 지움)
 #   -Force : 이미 준비된 파일을 MES 원본부터 다시 만듦 (mes 시트에 사람이 넣은 체크·금액 수정은 사라짐 → 먼저 백업\에 복사해 둠)
-param([int]$YM = 0, [switch]$Force)
+#   MES 첫 출고일이 그달 4일 이후면 멈춤(받은 기간이 1일~말일이 아닌 것) → 정말 맞으면 -AllowLateStart
+param([int]$YM = 0, [switch]$Force, [switch]$AllowLateStart)
 $ErrorActionPreference = 'Stop'
 if (-not $YM) { $YM = [int](@(Get-ChildItem 'C:\ai\기초자료' -Directory | ? { $_.Name -match '^\d{6}$' -and @(Get-ChildItem $_.FullName -File -Filter 'mes*월.xls' -ErrorAction SilentlyContinue).Count } | sort Name)[-1].Name) }
 $yy = [int][math]::Floor($YM / 100); $mm = [int]($YM % 100); $nx = $mm % 12 + 1; $mm2 = '{0:00}' -f $mm; $yy2 = '{0:00}' -f ($yy % 100)
@@ -181,6 +182,12 @@ try {
   }
   $lastD -= $del.Count; if ($tot) { $tot -= $del.Count }
   "$($mLab) 출고: $($lastD - 1)줄"
+  # MES를 '오늘 기준 한 달'로 받으면 그달 초가 빠짐 (2026-11-12: 10월 MES가 10/12~11/11이라 10/1~10/11 출고 누락) → 첫 출고일이 4일 이후면 멈춤
+  $dKeep = $ws.Range($ws.Cells(2, $HM['출고일']), $ws.Cells([math]::Max(2, $lastD), $HM['출고일'])).Value2
+  $minOA = @(@($dKeep) | % { ToOA $_ } | ? { $_ } | sort)[0]
+  if ($minOA -and ($minOA - $firstOA) -ge 3 -and -not $AllowLateStart) {
+    throw "MES 첫 출고일이 $(DS $minOA)임 → $($mm)/1~$($mm)/$([DateTime]::FromOADate($minOA).Day - 1) 출고가 빠졌을 수 있음. MES에서 기간을 $($mm)/1~말일로 다시 받아 mes$($mm)월.xls로 넣어 주세요 (정말 그날부터 출고가 맞으면 -AllowLateStart)"
+  }
 
   # ── 칸 추가: 출고일 뒤 5칸, 맨 끝 6칸
   $cD = $HM['출고일']

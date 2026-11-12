@@ -448,7 +448,7 @@ try {
     # 툴링비: 회계는 'DSM2610-24(툴링비)', 라인 파일은 'DSM2610-24' → 뒤 '(툴링비)' 빼고 찾음. 툴링비는 MES 출고가 없는 것이 정상 (2026-11-12, 10월)
     $isTool = $t.Inv -match '툴링'
     if (-not $l -and $isTool) { $l = $line[($t.Inv -replace '\s*\(툴링비\)\s*$', '')] }
-    $noMes = if ($isTool) { "툴링비라 MES 출고 없음(정상)" } else { "MES $mLab 출고에 없음(전월 출고분)" }
+    $noMes = if ($isTool) { "툴링비라 MES 출고 없음(정상)" } elseif ($t.Green) { "MES $mLab 출고에 없음(전월 출고분)" } else { "MES $mLab 출고에 없음 → 회계는 이번 달 출하(녹색 아님)라 MES 출고 입력이 빠졌는지 확인해 주세요" }   # 2026-11-12
     if ($p) {
       $cmp = [pscustomobject]@{ N = $p.File; Bl = $p.BlN; Rate = $p.Rate; Fc = $p.Fc; Krw = $p.Krw; Mj = $p.Mj }
       $k0 = 13; foreach ($k in $cats) { $vv = [double]$p.Split[$k]; if ($vv) { $gs.Cells($row, $k0).Value2 = $vv }; $k0++ }
@@ -476,7 +476,7 @@ try {
       if ($cmp.Fc -and (-not $t.Fc -or [math]::Abs($cmp.Fc - $t.Fc) -gt 0.01)) { $gs.Cells($row, 8).Interior.Color = $RED; $note += "외화: {0} {1:N2} ≠ 회계 {2:N2}" -f $cmp.N, $cmp.Fc, $t.Fc }
       if ($cmp.Krw -and (-not $t.Krw -or [math]::Abs($cmp.Krw - $t.Krw) -gt 0.5)) { $gs.Cells($row, 9).Interior.Color = $RED; $note += "원화 금액 다름: {0} 합계 {1:N0}원 / 회계 {2:N0}원 → {3:N0}원 {4}{5}" -f $cmp.N, $cmp.Krw, $t.Krw, [math]::Abs($cmp.Krw - $t.Krw), $(if ($cmp.Krw -lt $t.Krw) { '적음' } else { '많음' }), $(if ($p) { $al0 = @($skAlert | ? { $_.Inv -eq $t.Inv })[0]; if ($al0) { ". 매출내역서 엑셀 엔화가 {0:N2}엔(소수점)이라 원화가 달라짐. 회계 {1:N0}엔이 맞음 → 이번 달에도 국내팀 엑셀 엔화 소수점을 확인해 주세요 (알림)" -f $al0.Raw, $t.Fc } else { ". 회계(엔화×환율)가 맞음 → 매출내역서 항목별 금액(사형·금형·가공·스크랩) 확인 필요" } } else { '' }) }
     }
-    if ($note | ? { $_ -match '≠|없음\(비교|금액 다름' }) { $nRed++; $gsNotes += "  $($t.Inv)`t$($note -join ' / ')" }
+    if ($note | ? { $_ -match '≠|없음\(비교|금액 다름|입력이 빠졌는지' }) { $nRed++; $gsNotes += "  $($t.Inv)`t$($note -join ' / ')" }
     if ($note) { $gs.Cells($row, 22).Value2 = [string]($note -join ' / ') }
     $row++
   }
@@ -543,11 +543,14 @@ try {
     $dHdr = $sD.Range("A1:T1").Value2; $dCarryC = $null; for ($j = 1; $j -le 20; $j++) { if (("$($dHdr[1,$j])" -replace '\s', '') -eq '매출이월여부') { $dCarryC = $j } }
     $dv = $sD.Range("A1:$(if ($dCarryC -and $dCarryC -gt 9) { $sD.Cells(1,$dCarryC).Address($false,$false) -replace '\d', '' } else { 'I' })$dn").Value2; $dfm = $sD.Range("H1:H$dn").Formula; $wbD.Close($false)
     # 고객사별 하늘색 소계 줄(=SUM(H a:H b)) 범위 = 이번 달 매출(세금계산서와 같음). 소계가 있는 고객사의 범위 밖 줄은 비고가 없어도 이월 (사용자 확인 2026-10-29)
-    $covD = @{}; $subK = @{}
-    for ($i = 2; $i -le $dn; $i++) { if ("$($dfm[$i,1])" -match '^=SUM\(H(\d+):H(\d+)\)$') { $a1 = [int]$matches[1]; $b1 = [int]$matches[2]; for ($k1 = $a1; $k1 -le $b1; $k1++) { $covD[$k1] = $i }; $subK[(& $kNorm $dv[$a1,2])] = $true } }
+    $covD = @{}; $subK = @{}; $subA = @{}   # $subA[소계 줄] = 범위 첫 줄 (거래처 이름)
+    for ($i = 2; $i -le $dn; $i++) { if ("$($dfm[$i,1])" -match '^=SUM\(H(\d+):H(\d+)\)$') { $a1 = [int]$matches[1]; $b1 = [int]$matches[2]; $subA[$i] = $a1; for ($k1 = $a1; $k1 -le $b1; $k1++) { $covD[$k1] = $i }; $subK[(& $kNorm $dv[$a1,2])] = $true } }
     for ($i = 2; $i -le $dn; $i++) {
-      $c0 = "$($dv[$i,2])".Trim(); if (-not $c0) { continue }
-      $d0 = $dv[$i,1]; $pn = "$($dv[$i,4])".Trim()
+      $c0 = "$($dv[$i,2])".Trim(); $d0 = $dv[$i,1]; $pn = "$($dv[$i,4])".Trim()
+      # 소계 범위 안인데 업체명·출하일·품번이 빈 금액 줄(예: 10월 현대로템 97행 '24년 코레일 EMU-260 고속전철 78량' 18,100,000원) = 그 소계 거래처의 이번 달 매출 (2026-11-12)
+      $inSubNo = (-not $c0) -and $covD[$i] -and -not ($d0 -is [double]) -and [double](Num $dv[$i,8]) -ne 0
+      if ($inSubNo) { $c0 = "$($dv[$subA[$covD[$i]],2])".Trim(); if (-not $pn) { $pn = "$($dv[$i,3])".Trim() } }
+      if (-not $c0) { continue }
       if (-not ($d0 -is [double]) -and -not $pn) { continue }   # 소계 줄
       $k0 = & $kNorm $c0; if ($pdfCustK[$k0]) { continue }       # 신코·코마츠 = 해외매출(PDF 기준)
       $ymD = if ($d0 -is [double]) { $dd = [DateTime]::FromOADate($d0); $dd.Year * 100 + $dd.Month } else { 0 }
@@ -580,11 +583,11 @@ try {
   }
   # 일별마감 → 고객사: 이름이 하나와만 맞으면 그곳. 여러 곳과 비슷하면(예: 일별마감 '현대로템(주)' ↔ MES '현대로템㈜철차'·'현대로템㈜방산')
   #   다른 곳은 제 이름 줄(현대로템㈜방산)이 따로 있으므로, 일별마감 줄이 아직 없는 곳 하나로 보냄 (2026-11-12, 10월)
-  $candG = { param($key) $h0 = @($dom.Keys | ? { $dom[$_].Key -eq $key }); if (-not $h0.Count -and $key.Length -ge 2) { $h0 = @($dom.Keys | ? { $dom[$_].Key.Length -ge 2 -and ($dom[$_].Key.StartsWith($key) -or $key.StartsWith($dom[$_].Key)) }) }; ,$h0 }
+  $candG = { param($key) $h0 = @($dom.Keys | ? { $dom[$_].Key -eq $key }); if (-not $h0.Count -and $key.Length -ge 2) { $h0 = @($dom.Keys | ? { $dom[$_].Key.Length -ge 2 -and ($dom[$_].Key.StartsWith($key) -or $key.StartsWith($dom[$_].Key)) }) }; $h0 }
   $dayPend = @()
-  foreach ($x in $daily) { $cg = & $candG $x.Key; if ($cg.Count -eq 1) { [void]$dom[$cg[0]].Day.Add($x) } elseif ($cg.Count -gt 1) { $dayPend += $x } else { $gk = "일별마감:$($x.Cust)"; if (-not $dom.Contains($gk)) { $dom[$gk] = & $newG $x.Cust $x.Key }; [void]$dom[$gk].Day.Add($x) } }
+  foreach ($x in $daily) { $cg = @(& $candG $x.Key); if ($cg.Count -eq 1) { [void]$dom[$cg[0]].Day.Add($x) } elseif ($cg.Count -gt 1) { $dayPend += $x } else { $gk = "일별마감:$($x.Cust)"; if (-not $dom.Contains($gk)) { $dom[$gk] = & $newG $x.Cust $x.Key }; [void]$dom[$gk].Day.Add($x) } }
   foreach ($pg in @($dayPend | group Key)) {
-    $cg = @((& $candG $pg.Name) | ? { -not $dom[$_].Day.Count })
+    $cg = @(@(& $candG $pg.Name) | ? { -not $dom[$_].Day.Count })
     $gk = if ($cg.Count -eq 1) { $cg[0] } else { "일별마감:$($pg.Group[0].Cust)" }
     if (-not $dom.Contains($gk)) { $dom[$gk] = & $newG $pg.Group[0].Cust $pg.Name }
     foreach ($x in $pg.Group) { [void]$dom[$gk].Day.Add($x) }
@@ -646,7 +649,7 @@ try {
       $ks.Cells($krow, 4).Value2 = $shipQ; $ks.Cells($krow, 5).Value2 = $shipA
       foreach ($pair in @(@(8, $prevA), @(9, $retA), @(10, $retroA), @(11, -$carryA))) { if ($pair[1]) { $ks.Cells($krow, $pair[0]).Value2 = [double]$pair[1] } }
       $ks.Cells($krow, 12).Value2 = $saleA
-      if ($nodA) { $note += "일별마감에 출하일이 비어 있는 줄 {0:N0}원은 {1} 매출에 넣음 (참고)" -f $nodA, $mLab }
+      if ($nodA) { $note += "일별마감 {1} 시트 {2}행(출하일이 비어 있는 줄) {0:N0}원은 소계에 들어 있어 {1} 매출에 넣음 (참고)" -f $nodA, $mLab, ((@($dy | ? { $_.Cat -eq 'nodate' } | % { "$($_.R)$(if ($_.B) { " '$($_.B)'" })" })) -join ', ') }
       if ($retA) { $note += "반품·불량으로 {0:N0}원 차감됨 (일별마감)" -f [math]::Abs($retA) }
       if ($retroA) { $note += "단가 소급 {0:N0}원 (일별마감)" -f $retroA }
       if ($carryA) { $note += "$nLab 이월 {0:N0}원은 {1} 매출에서 뺌 → 이월매출 시트" -f $carryA, $mLab
@@ -811,7 +814,7 @@ try {
   }
   # 해외매출 에러내용도 포함
   $gv = $gs.UsedRange.Value2; $gn = $gs.UsedRange.Rows.Count
-  for ($i = 2; $i -le $gn; $i++) { $e = "$($gv[$i,21])"; if ($e -match '≠|비교 불가|금액 다름') { [void]$errs.Add(@('해외매출', "해외매출 R$i", "$($gv[$i,4])", "$($gv[$i,2])", '회계', '', "$($gv[$i,20])", $e)) } }
+  for ($i = 2; $i -le $gn; $i++) { $e = "$($gv[$i,21])"; if ($e -match '≠|비교 불가|금액 다름|입력이 빠졌는지') { [void]$errs.Add(@('해외매출', "해외매출 R$i", "$($gv[$i,4])", "$($gv[$i,2])", '회계', '', "$($gv[$i,20])", $e)) } }
   foreach ($x in @($domErr) + @($domNote) + @($amtEdits)) { [void]$errs.Add($x) }   # 국내매출: 세금계산서·MES 한쪽에만 있는 건
   # 원자료 → 숨김 시트 '오류원본' (다음 실행 때 다시 읽음)
   if ($have['오류원본']) { $have['오류원본'].Visible = -1; $have['오류원본'].Delete() }
