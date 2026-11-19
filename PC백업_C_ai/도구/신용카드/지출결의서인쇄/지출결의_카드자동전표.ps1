@@ -11,7 +11,7 @@
 # 규칙(2026-11-13 사용자 지정 + 1~11월 실제 카드 전표):
 #  · 카드 1건(가맹점) = 전표 1장 (같은 날이어도 거래처마다 따로)
 #  · 차변 비용(가맹점 거래처·사업자번호·프로젝트) / 부가세 있으면 차변 1350000 부가세대급금(세무구분 27, 신고기준일=카드 쓴 날, 공급가액, 카드번호) / 대변 2530000 미지급금(카드사)
-#  · 미지급금 거래처: 기업비씨 99706 · 농협 99708 · 경남 99709 · 하나 99905 (카드번호가 달라도 카드사로 통일)
+#  · 미지급금 거래처 / 부가세 결제카드: 둘 다 카드사 코드로 통일 — 기업 99706 · 경남 99709 · 농협 99708 · 현대 99903 · 하나 99905 · 국민 99701 (2026-11-19 사용자 지정)
 #  · 적요: 지출내역 내용 + "_#기업6941"(카드사+끝 4자리), 품의내역도 같게
 #  · 택시·주유·주차·대리·철도·숙박 = 여비교통비, 해외 항공 = 해외출장비
 #  · 이미 1~11월 전표에 같은 날·같은 금액·같은 카드로 있는 건은 넣지 않음(이중 방지)
@@ -21,7 +21,7 @@ $ser = New-Object System.Web.Script.Serialization.JavaScriptSerializer; $ser.Max
 $docs = $ser.DeserializeObject([IO.File]::ReadAllText($Data, [Text.Encoding]::UTF8))
 $J = Import-Csv $Journal -Encoding UTF8
 $bizKind = @{}; if (Test-Path -LiteralPath $BizStatus) { foreach ($s9 in (Import-Csv $BizStatus -Encoding UTF8)) { $bizKind[$s9.사업자번호] = $s9.구분 } }
-# 결제카드: 카드번호로 등록된 카드 거래처코드 (예: 경남 5585-3980-0036-9587 = 90009). 등록이 없는 카드는 카드사 코드(99706 등)
+# 결제카드: 언제나 카드사 거래처코드. 카드번호별로 따로 등록된 코드(예: 90009)는 쓰지 않는다 (2026-11-19 사용자 지정)
 . 'C:\ai\도구\엑셀없이_xlsx읽기.ps1'
 $payCardByNo = @{}; foreach ($vr in ((Read-Xlsx $VatBook 1).Rows | Where-Object { $_.R -gt 1 })) { $no = ("$($vr.Cells[42])" -replace '\D', ''); $cc = "$($vr.Cells[40])".Trim(); if ($no.Length -ge 15 -and $cc) { $payCardByNo[$no] = @($cc, "$($vr.Cells[41])".Trim()) } }
 function Num($s) { $t = ("$s" -replace '[^\d\-]', ''); if ($t) { [double]$t } else { 0 } }
@@ -42,7 +42,7 @@ function NameScore($a, $b) {
 }
 $PGRX = '/|이니시스|KCP|KICC|나이스|NICE|TOSS|토스|카카오페이|네이버페이|인터넷상거래|결제|결재|요금창구|세외수입'   # 결제대행을 거친 가맹점 이름
 $pjByName = @{}; foreach ($g in ($J | Where-Object { $_.프로젝트코드 } | Group-Object 프로젝트코드)) { $nm = ($g.Group | Group-Object 프로젝트명 | Sort-Object Count -Descending | Select-Object -First 1).Name; $pjByName[$nm] = $g.Name; $pjByName[($nm -replace '\s*\(.*$', '')] = $g.Name }
-$CARD = @{ '기업' = @('99706', '기업비씨카드'); '농협' = @('99708', '농협비씨카드'); '경남' = @('99709', '경남비씨카드(2113)'); '하나' = @('99905', '하나카드'); '국민' = @('', '국민카드'); '현대' = @('99903', '현대카드') }
+$CARD = @{ '기업' = @('99706', '기업비씨카드'); '농협' = @('99708', '농협비씨카드'); '경남' = @('99709', '경남비씨카드(2113)'); '하나' = @('99905', '하나카드'); '국민' = @('99701', '국민카드'); '현대' = @('99903', '현대카드') }
 foreach ($k in @($CARD.Keys)) { $hit = $J | Where-Object { $_.거래처코드 -eq $CARD[$k][0] } | Select-Object -First 1; if ($hit) { $CARD[$k] = @($CARD[$k][0], $hit.거래처명.Trim()) } }
 # 카드 전표(미지급금이 카드사인 전표)의 비용 줄 → 카드 끝 4자리별 경향
 $cardCodes = @($CARD.Values | ForEach-Object { $_[0] } | Where-Object { $_ })
@@ -142,14 +142,14 @@ foreach ($v in $VOU) {
   if ($v.새거래처) { $e.CEO_NM = $v.대표자; $e.DIV_ADDR1 = $v.주소; $e.TEL = $v.전화 }
   [void]$LINES.Add($e)
   if ($v.부가세줄) { $ln++; $t = $base.Clone(); $t.MENU_LN_SQ = $ln; $t.DRCR_FG = '3'; $t.ACCT_CD = '1350000'; $t.TR_CD = $v.거래처코드; $t.TR_NM = $v.거래처명; $t.ACCT_AM = $v.부가세; $t.REG_NB = $v.사업자번호
-    $t.VAT_DIV_CD = '1000'; $t.ISS_DT = $dts; $t.TAX_FG = '27'; $t.CT_DEAL = '27'; $t.SUP_AM = $v.공급가액; $t.CT_NB = $(if ($payCardByNo.ContainsKey($v.카드번호)) { $payCardByNo[$v.카드번호][0] } else { $CARD[$v.카드사][0] })   # 결제카드 = 그 카드번호로 등록된 카드 거래처코드, 없으면 카드사 코드(2026-11-13 사용자 지정)
+    $t.VAT_DIV_CD = '1000'; $t.ISS_DT = $dts; $t.TAX_FG = '27'; $t.CT_DEAL = '27'; $t.SUP_AM = $v.공급가액; $t.CT_NB = $CARD[$v.카드사][0]   # 결제카드 = 언제나 카드사 거래처코드 (기업 99706 / 경남 99709 / 농협 99708 / 현대 99903 / 하나 99905 / 국민 99701) — 2026-11-19 사용자 지정: 카드번호별 코드는 쓰지 않는다
     if ($v.새거래처) { $t.CEO_NM = $v.대표자; $t.DIV_ADDR1 = $v.주소; $t.TEL = $v.전화 }
     [void]$LINES.Add($t) }
   $ln++; $c = $base.Clone(); $c.MENU_LN_SQ = $ln; $c.DRCR_FG = '4'; $c.ACCT_CD = '2530000'; $c.TR_CD = $CARD[$v.카드사][0]; $c.TR_NM = $CARD[$v.카드사][1]; $c.ACCT_AM = $v.합계
   [void]$LINES.Add($c)
 }
 foreach ($v in ($VOU | Where-Object 새거래처)) { [void]$CHK.Add([pscustomobject]@{ 문서 = $v.문서; 내용 = $v.내용; 확인 = "새 거래처: '$($v.가맹점)' 사업자번호 $($v.사업자번호) — 1~11월 전표에 없음(거래처코드 비움). 아마란스에 거래처 등록 후 코드 넣기" }) }
-foreach ($v in ($VOU | Where-Object { $_.부가세줄 -and $payCardByNo.ContainsKey($_.카드번호) -and $payCardByNo[$_.카드번호][0] -ne $CARD[$_.카드사][0] })) { [void]$CHK.Add([pscustomobject]@{ 문서 = $v.문서; 내용 = $v.내용; 확인 = "결제카드는 카드번호로 등록된 $($payCardByNo[$v.카드번호][0]) $($payCardByNo[$v.카드번호][1]), 미지급금은 카드사 $($CARD[$v.카드사][0])" }) }
+foreach ($v in ($VOU | Where-Object { -not $CARD.ContainsKey("$($_.카드사)") })) { [void]$CHK.Add([pscustomobject]@{ 문서 = $v.문서; 내용 = $v.내용; 확인 = "모르는 카드사 '$($v.카드사)' — 거래처코드를 못 넣었습니다. 카드사 코드를 알려주세요(기업 99706 / 경남 99709 / 농협 99708 / 현대 99903 / 하나 99905 / 국민 99701)" }) }
 foreach ($v in ($VOU | Where-Object { $_.참고 })) { [void]$CHK.Add([pscustomobject]@{ 문서 = $v.문서; 내용 = $v.내용; 확인 = $v.참고 }) }
 foreach ($v in ($VOU | Where-Object { $_.프로젝트근거 -notlike '지출결의서 프로젝트*' })) { [void]$CHK.Add([pscustomobject]@{ 문서 = $v.문서; 내용 = $v.내용; 확인 = "프로젝트 $($v.프로젝트): $($v.프로젝트근거)" }) }
 
