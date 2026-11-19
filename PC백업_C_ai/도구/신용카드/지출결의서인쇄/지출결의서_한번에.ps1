@@ -127,7 +127,12 @@ if ($NoAsk) {
   </Grid>
 </Window>
 "@
+  Say '화면에 고르는 창을 띄웁니다. 창이 안 보이면 Alt+Tab 이나 작업 표시줄을 봐 주세요.' 'Yellow'
   $script:win = [Windows.Markup.XamlReader]::Load((New-Object Xml.XmlNodeReader $x))
+  $script:win.Topmost = $true
+  $script:win.WindowStartupLocation = 'CenterScreen'
+  $script:win.ShowInTaskbar = $true
+  $script:win.Add_ContentRendered({ try { $script:win.Activate() | Out-Null; $script:win.Topmost = $false } catch {} })
   $script:lb = $script:win.FindName('List')
   $script:win.FindName('Head').Text = "미결함에서 지출결의서 $($docs.Count)건을 찾았습니다. 처리할 문서를 고르세요."
   foreach ($d in $docs) {
