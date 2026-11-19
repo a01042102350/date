@@ -69,7 +69,7 @@ Say '로그인 확인됨.' 'Green'
 Say '미결함(결재할 문서함)을 여는 중...'
 $null = Cdp 'Page.navigate' @{ url = 'about:blank' }; Start-Sleep -Milliseconds 300
 $null = Cdp 'Page.navigate' @{ url = $InboxUrl }
-if (-not (WaitJs "document.querySelector('li[id^=readchk_]')" 40)) {
+if (-not (WaitJs "document.querySelectorAll('li[id^=readchk_]').length > 0" 40)) {
   Disconnect-Tab; Close-Tab $tab.id
   Die "미결함을 읽지 못했습니다.`n`n작업용 엣지 창에서 미결함(결재할 문서)을 직접 열어 보시고,`n문서가 보이는지 확인해 주세요."
 }
