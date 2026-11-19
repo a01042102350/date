@@ -85,7 +85,7 @@ foreach ($d in $docs) { foreach ($it in $d['items']) {
   elseif ($txt -match '사용료|수수료|구독|CHATGPT|OPENAI') { $cat = '지급수수료' }
   elseif ($txt -match '마이크|구매|구입|비품|소모품') { $cat = '소모품비' }
   elseif ($txt -match '식대|중식|석식|점심|저녁|음료|간식|다과|회식') { $cat = '복리후생비' }
-  if ($cat -eq '복리후생비' -and $desc -match '신코|머큐리|고객|접대|거래처') {
+  if ($cat -eq '복리후생비' -and $desc -match '신코|머큐리|고객|접대|거래처|회계법인|법무법인|세무법인|세무사') {
     if ($total -lt 80000) { $why = '손님 식대지만 8만원 미만이라 복리후생비(2026-11-13 사용자 지정)' }
     else { $cat = '접대비'; $why = '거래처(손님)와 먹은 식대, 8만원 이상이라 접대비(부가세 불공제)' }
   }
