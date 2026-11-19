@@ -1,5 +1,6 @@
 {
   "permissions": {
+    "defaultMode": "dontAsk",
     "allow": [
       "PowerShell",
       "Bash",
@@ -8,6 +9,9 @@
       "Write",
       "Glob",
       "Grep"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\user\\Desktop"
     ]
   }
 }
