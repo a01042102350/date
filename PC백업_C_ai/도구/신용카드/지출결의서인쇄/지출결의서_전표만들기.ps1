@@ -63,15 +63,36 @@ if (-not (Test-GwLogin)) {
 Say '로그인 확인됨.' 'Green'
 
 # ── 주소 받기 ──
+# 창을 띄우기 전에, 바로 전에 뽑은 문서 목록이 있는지 본다
+$listFile = Join-Path $work '목록.json'
+$lastDocs = @()
+if (Test-Path $listFile) {
+  try { $lastDocs = @(((Get-Content $listFile -Raw -Encoding UTF8) | ConvertFrom-Json).rows | Where-Object { $_.FORM_NM -eq '지출결의서' }) } catch { $lastDocs = @() }
+}
+if ($lastDocs.Count) {
+  $script:lastLabel = "바로 앞에 뽑은 지출결의서 $($lastDocs.Count)건으로 만들기 (위에 주소를 넣지 않아도 됩니다)"
+  $script:lastDetail = '-> ' + (($lastDocs | ForEach-Object { $_.DOC_NO }) -join ',  ')
+  $script:lastOk = $true
+} else {
+  $script:lastLabel = '바로 앞에 뽑은 지출결의서로 만들기'
+  $script:lastDetail = '-> 바로 앞에 뽑은 문서가 없습니다. 위에 주소를 넣어 주세요.'
+  $script:lastOk = $false
+}
+
 function Ask-Links {
   [xml]$x = @"
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="지출결의서 전표 만들기" Height="470" Width="790" WindowStartupLocation="CenterScreen">
-  <Grid Margin="14">
-    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <TextBlock Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,10" FontSize="13">지출결의서 문서 주소를 아래에 붙여넣으세요. 여러 개면 한 줄에 하나씩.&#10;카드 자동전표(아마란스 업로드 엑셀)를 만들어 드립니다.</TextBlock>
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="지출결의서 전표 만들기" Height="500" Width="800" WindowStartupLocation="CenterScreen">
+  <Grid Margin="16">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <TextBlock Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,10" FontSize="13">지출결의서 문서 주소를 아래에 붙여넣으세요. 여러 개면 한 줄에 하나씩.&#10;카드 자동전표(아마란스에 올리는 엑셀)를 만들어 드립니다.</TextBlock>
     <TextBox Grid.Row="1" Name="Box" AcceptsReturn="True" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12" Padding="6"/>
-    <CheckBox Grid.Row="2" Name="Chk" Margin="2,12,0,0" FontSize="13">주소를 넣지 않고, 바로 전에 '지출결의서_인쇄'로 뽑은 문서 그대로 쓰기</CheckBox>
-    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+    <Border Grid.Row="2" Margin="0,14,0,0" Padding="10,8" Background="#F4F6F8" CornerRadius="4">
+      <StackPanel>
+        <CheckBox Name="Chk" FontSize="13" FontWeight="Bold"/>
+        <TextBlock Name="Detail" FontSize="12" Foreground="#555" Margin="22,4,0,0" TextWrapping="Wrap"/>
+      </StackPanel>
+    </Border>
+    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
       <Button Name="Ok" Content="시작" Width="100" Height="32" Margin="0,0,8,0"/>
       <Button Name="No" Content="취소" Width="100" Height="32" IsCancel="True"/>
     </StackPanel>
@@ -81,6 +102,9 @@ function Ask-Links {
   $script:win = [Windows.Markup.XamlReader]::Load((New-Object Xml.XmlNodeReader $x))
   $script:box = $script:win.FindName('Box')
   $script:chk = $script:win.FindName('Chk')
+  $script:chk.Content = $script:lastLabel
+  $script:chk.IsEnabled = $script:lastOk
+  $script:win.FindName('Detail').Text = $script:lastDetail
   $script:ret = $null
   $script:win.FindName('Ok').Add_Click({ $script:ret = @{ text = $script:box.Text; last = $script:chk.IsChecked }; $script:win.Close() })
   $script:win.FindName('No').Add_Click({ $script:ret = $null; $script:win.Close() })
@@ -97,7 +121,6 @@ if (-not $Urls.Count -and -not $UseLastList) {
 }
 
 # ── 1단계: 목록 만들기 ──
-$listFile = Join-Path $work '목록.json'
 if ($UseLastList -and -not $Urls.Count) {
   if (-not (Test-Path $listFile)) { Disconnect-Tab; Close-Tab $tab.id; Die "바로 전에 뽑은 문서 목록이 없습니다.`n주소를 넣어 주세요." }
   $rows = @(((Get-Content $listFile -Raw -Encoding UTF8) | ConvertFrom-Json).rows | Where-Object { $_.FORM_NM -eq '지출결의서' })
