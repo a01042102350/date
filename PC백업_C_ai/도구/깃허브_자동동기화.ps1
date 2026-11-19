@@ -1,4 +1,13 @@
 ﻿# C:\ai ↔ GitHub 자동 동기화 — 작업 스케줄러가 10분마다 실행. 노트북·데스크탑 모두 개인 저장소 date 한 곳으로
+
+# 바탕화면 도구(영수증·카드) 중 스크립트만 C:\ai로 복사해서 같이 백업 — 엑셀·PDF 같은 자료는 안 올림 (사용자 결정 2026-11-19)
+#   다른 PC에서 쓰려면 C:\ai\도구\신용카드\ 안의 파일을 그 PC 바탕화면\ai\신용카드 ai\ 로 복사하면 된다
+$deskTool = Join-Path $env:USERPROFILE 'Desktop\ai\신용카드 ai'
+if (Test-Path $deskTool) {
+  $toolBak = 'C:\ai\도구\신용카드'
+  New-Item -ItemType Directory -Force $toolBak | Out-Null
+  robocopy $deskTool $toolBak *.ps1 *.js *.md *.txt /S /XO /XD 백업* /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+}
 #   C:\ai\기초자료 ↔ 기초자료/, C:\ai 나머지 전부 ↔ PC백업_C_ai/ (회사 저장소 부분은 2026-11-06부터 꺼 둠)
 #  2) GitHub → PC: 다른 곳에서 GitHub에 올린 파일을 이 PC 폴더로 (더 새 파일만)
 #  3) PC → GitHub: 이 PC 폴더에 넣은 파일을 GitHub로 (더 새 파일만, 지우지는 않음)
