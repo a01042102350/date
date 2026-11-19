@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationFramework
 $work = "$env:TEMP\지출결의서인쇄"
 $cardDir = "$env:TEMP\카드전표"
-$outDir = "$env:USERPROFILE\Desktop\지출결의서"
+$outDir = "$env:USERPROFILE\Desktop\지출결의서\결과"
 $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 New-Item -ItemType Directory -Force $work, $cardDir, $outDir | Out-Null
 

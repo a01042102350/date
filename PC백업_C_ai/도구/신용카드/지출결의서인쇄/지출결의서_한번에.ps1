@@ -4,6 +4,9 @@
   [switch]$DoPrint,        # NoAsk 일 때: 종이로 뽑기
   [switch]$DoVoucher,      # NoAsk 일 때: 전표 만들기
   [switch]$RealPrint,      # NoAsk 일 때: 미리보기 말고 진짜 인쇄
+  [switch]$PrintOnly,      # 인쇄만 하기
+  [switch]$VoucherOnly,    # 전표만 만들기
+  [switch]$Preview,        # 인쇄 대신 미리보기 그림만
   [int]$Port = 9333
 )
 # 미결함에 있는 지출결의서를 읽어 와서, 고른 것들을
@@ -16,7 +19,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationFramework
 $work = "$env:TEMP\지출결의서인쇄"
 $cardDir = "$env:TEMP\카드전표"
-$outDir = "$env:USERPROFILE\Desktop\지출결의서"
+$outDir = "$env:USERPROFILE\Desktop\지출결의서\결과"
 $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 New-Item -ItemType Directory -Force $work, $cardDir, $outDir | Out-Null
 
@@ -94,77 +97,17 @@ Say "미결함 문서 $($all.Count)건 중 지출결의서 $($docs.Count)건" 'G
 $docs | ForEach-Object { "   $($_.DOC_NO)  |  $($_.DOC_TITLE)  |  첨부 $($_.FILE_CNT)개" }
 if (-not $docs.Count) { Die "미결함에 지출결의서가 없습니다.`n(미결함 문서 $($all.Count)건은 다른 양식입니다)" }
 
-# ── 고르는 창 ──
-$sel = $null; $wantPrint = $false; $wantVou = $false; $realPrint = $false
-if ($NoAsk) {
-  $sel = $docs; $wantPrint = [bool]$DoPrint; $wantVou = [bool]$DoVoucher; $realPrint = [bool]$RealPrint
-} else {
-  [xml]$x = @"
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="지출결의서 한번에" Height="620" Width="860" WindowStartupLocation="CenterScreen">
-  <Grid Margin="16">
-    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <TextBlock Grid.Row="0" Name="Head" FontSize="14" FontWeight="Bold" Margin="0,0,0,10"/>
-    <ListBox Grid.Row="1" Name="List" FontSize="13" ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
-    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
-      <Button Name="All" Content="전부 고르기" Width="110" Height="28" Margin="0,0,8,0"/>
-      <Button Name="None" Content="전부 빼기" Width="110" Height="28"/>
-    </StackPanel>
-    <Border Grid.Row="3" Margin="0,14,0,0" Padding="12,10" Background="#F4F6F8" CornerRadius="4">
-      <StackPanel>
-        <TextBlock Text="무엇을 할까요?" FontWeight="Bold" FontSize="13" Margin="0,0,0,8"/>
-        <CheckBox Name="CPrint" FontSize="13" Margin="0,0,0,6">종이로 뽑기 (지출결의서 + 영수증 + 첨부서류)</CheckBox>
-        <StackPanel Orientation="Horizontal" Margin="24,0,0,8">
-          <RadioButton Name="RPrev" GroupName="P" FontSize="12" IsChecked="True" Margin="0,0,16,0">미리보기 그림만 (확인용)</RadioButton>
-          <RadioButton Name="RReal" GroupName="P" FontSize="12">진짜로 인쇄하기</RadioButton>
-        </StackPanel>
-        <CheckBox Name="CVou" FontSize="13">카드 자동전표 만들기 (아마란스에 올리는 엑셀)</CheckBox>
-      </StackPanel>
-    </Border>
-    <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-      <Button Name="Ok" Content="시작" Width="110" Height="34" Margin="0,0,8,0"/>
-      <Button Name="No" Content="취소" Width="110" Height="34" IsCancel="True"/>
-    </StackPanel>
-  </Grid>
-</Window>
-"@
-  Say '화면에 고르는 창을 띄웁니다. 창이 안 보이면 Alt+Tab 이나 작업 표시줄을 봐 주세요.' 'Yellow'
-  $script:win = [Windows.Markup.XamlReader]::Load((New-Object Xml.XmlNodeReader $x))
-  $script:win.Topmost = $true
-  $script:win.WindowStartupLocation = 'CenterScreen'
-  $script:win.ShowInTaskbar = $true
-  $script:win.Add_ContentRendered({ try { $script:win.Activate() | Out-Null; $script:win.Topmost = $false } catch {} })
-  $script:lb = $script:win.FindName('List')
-  $script:win.FindName('Head').Text = "미결함에서 지출결의서 $($docs.Count)건을 찾았습니다. 처리할 문서를 고르세요."
-  foreach ($d in $docs) {
-    $cb = New-Object System.Windows.Controls.CheckBox
-    $cb.Content = "{0}   |   {1}   |   첨부 {2}개" -f $d.DOC_NO, $d.DOC_TITLE, $d.FILE_CNT
-    $cb.IsChecked = $true
-    $cb.Tag = $d
-    $cb.Margin = '2,3,2,3'
-    [void]$script:lb.Items.Add($cb)
-  }
-  $script:win.FindName('All').Add_Click({ foreach ($i in $script:lb.Items) { $i.IsChecked = $true } })
-  $script:win.FindName('None').Add_Click({ foreach ($i in $script:lb.Items) { $i.IsChecked = $false } })
-  $script:cp = $script:win.FindName('CPrint'); $script:cp.IsChecked = $true
-  $script:cv = $script:win.FindName('CVou'); $script:cv.IsChecked = $true
-  $script:rr = $script:win.FindName('RReal')
-  $script:ret = $null
-  $script:win.FindName('Ok').Add_Click({
-      $script:ret = @{
-        docs  = @($script:lb.Items | Where-Object { $_.IsChecked } | ForEach-Object { $_.Tag })
-        print = [bool]$script:cp.IsChecked
-        vou   = [bool]$script:cv.IsChecked
-        real  = [bool]$script:rr.IsChecked
-      }
-      $script:win.Close()
-    })
-  $script:win.FindName('No').Add_Click({ $script:ret = $null; $script:win.Close() })
-  $null = $script:win.ShowDialog()
-  if (-not $script:ret) { exit }
-  $sel = @($script:ret.docs); $wantPrint = $script:ret.print; $wantVou = $script:ret.vou; $realPrint = $script:ret.real
+# ── 무엇을 할지 정하기 (창을 띄우지 않는다) ──
+$sel = $docs
+$wantPrint = $true
+$wantVou = $true
+$realPrint = $true
+if ($PSBoundParameters.ContainsKey('DoPrint') -or $PSBoundParameters.ContainsKey('DoVoucher') -or $NoAsk) {
+  $wantPrint = [bool]$DoPrint; $wantVou = [bool]$DoVoucher; $realPrint = [bool]$RealPrint
 }
-if (-not $sel.Count) { Die '고른 문서가 없습니다.' }
-if (-not $wantPrint -and -not $wantVou) { Die '할 일을 하나는 골라 주세요 (종이로 뽑기 / 카드 자동전표).' }
+if ($PrintOnly) { $wantPrint = $true; $wantVou = $false }
+if ($VoucherOnly) { $wantPrint = $false; $wantVou = $true }
+if ($Preview) { $realPrint = $false }
 
 # ── 고른 것만 목록으로 저장 ──
 $listFile = Join-Path $work '목록.json'

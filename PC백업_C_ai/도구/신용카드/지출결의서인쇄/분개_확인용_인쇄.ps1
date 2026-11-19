@@ -1,5 +1,5 @@
 ﻿param(
-  [string]$Folder = "$env:USERPROFILE\Desktop\지출결의서",
+  [string]$Folder = "$env:USERPROFILE\Desktop\지출결의서\결과",
   [string]$Stamp = (Get-Date -Format 'yyyyMMdd'),
   [switch]$Print
 )

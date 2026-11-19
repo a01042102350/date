@@ -1,7 +1,7 @@
 ﻿param(
   [string[]]$Urls = @(),          # 영수증 링크들 (또는 지출결의 문서 링크)
   [string]$UrlFile = '',          # 링크를 한 줄에 하나씩 적은 텍스트 파일
-  [string]$OutDir = "$env:USERPROFILE\Desktop\지출결의서",
+  [string]$OutDir = "$env:USERPROFILE\Desktop\지출결의서\결과",
   [int]$Port = 9333,
   [switch]$Probe,                 # 화면 구조만 보고 끝냄 (개발용)
   [string]$Eval = ''              # Probe 때 실행해 볼 스크립트

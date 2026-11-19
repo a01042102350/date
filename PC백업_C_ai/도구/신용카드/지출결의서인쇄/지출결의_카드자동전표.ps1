@@ -2,7 +2,7 @@
   [string]$Data = "$env:TEMP\카드전표\자료.json",                 # 지출결의_카드자료.ps1 결과
   [string]$Journal = "$env:TEMP\참고1_전표.csv",                   # 1~11월 전표(참고1) CSV
   [string]$Template = 'C:\ai\매월마감\해외자동전표\자동전표처리(일반) 양식.xlsx',
-  [string]$OutDir = "$env:USERPROFILE\Desktop\지출결의서",
+  [string]$OutDir = "$env:USERPROFILE\Desktop\지출결의서\결과",
   [string]$VatBook = 'C:\ai\매월마감\국내자동전표\참고4.xlsx',          # 부가세 매입매출장: 결제카드 거래처코드·카드번호
   [string]$BizStatus = "$env:TEMP\카드전표\사업자상태.csv",          # 사업자상태_조회.ps1 결과(국세청 일반/간이)
   [int]$StartNo = 3000                                              # 작성번호: 날짜마다 3000부터(손 전표·해외 1000·국내 2000과 안 겹치게)

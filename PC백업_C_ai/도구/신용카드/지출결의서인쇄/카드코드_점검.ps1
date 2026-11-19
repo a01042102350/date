@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $CODE = @{ '기업' = '99706'; '경남' = '99709'; '농협' = '99708'; '현대' = '99903'; '하나' = '99905'; '국민' = '99701' }
 
 if (-not $File) {
-  $File = (Get-ChildItem "$env:USERPROFILE\Desktop\지출결의서" -Filter '지출결의_카드자동전표_*.xlsx' |
+  $File = (Get-ChildItem "$env:USERPROFILE\Desktop\지출결의서\결과" -Filter '지출결의_카드자동전표_*.xlsx' |
       Where-Object { $_.Name -notlike '*_검토*' -and $_.Name -notlike '*_분개확인*' } |
       Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
 }
