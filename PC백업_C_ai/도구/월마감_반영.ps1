@@ -119,7 +119,7 @@ try {
   $wb.Close($false)
 
   # 회계 YY.MM(NEW): A 거래처, C 인보이스, D 면장번호, F BL일자, G 환율, H 외화, I 원화 ('Invoice' 머리글 다음 줄부터 '총계' 줄 전까지)
-  $acc = @{}; $accList = @()
+  $acc = @{}; $accList = @(); $accAtlas = @()
   $accF = @(Get-ChildItem $base -File | ? { $_.Name -match '^회계.*수출' -and $_.Name -match "\($yy\.$mm2\)" -and $_.Name -notmatch '^~\$' })[0]
   if (-not $accF) { throw "회계 수출 파일이 없음 (회계 ... ($yy.$mm2).xlsx)" }
   $accSheet = "$yy2.$mm2(NEW)"
@@ -139,13 +139,15 @@ try {
       $inv = K $v[$i,2]; if (-not $inv -or $c1 -match '소\s*계') { continue }
       # 옛 형식엔 '전월 출하' 녹색이 없음 → 인보이스 번호의 연월(DSM2512-…, 2512P…)이 마감월보다 앞이면 전월 출하로 봄 (대략)
       $gO = $false; if ($inv -match '^(?:DSM\s*)?(\d{2})(\d{2})') { $gO = ([int]$matches[1] * 100 + [int]$matches[2]) -lt ([int]$yy2 * 100 + $mm) }
-      $a = [pscustomobject]@{ R = $ah0 + $i; Cust = $custO; Inv = $inv; Mj = (K $v[$i,4]); Bl = (Num $v[$i,6]); Rate = (Num $v[$i,7]); Fc = (Num $v[$i,8]); Krw = (Num $v[$i,9]); Gray = ([bool](Num $v[$i,11]) -and -not (Num $v[$i,10])); Green = $gO }
+      $a = [pscustomobject]@{ R = $ah0 + $i; Cust = $custO; Inv = $inv; Mj = ((K $v[$i,4]) -replace '-X$', 'X'); Bl = (Num $v[$i,6]); Rate = (Num $v[$i,7]); Fc = (Num $v[$i,8]); Krw = (Num $v[$i,9]); Gray = ([bool](Num $v[$i,11]) -and -not (Num $v[$i,10])); Green = $gO }
       if ($a.Mj -match '^\d{5}-\d{2}-\d{6}X$') { $accList += $a }
+      if ($inv -match '^DSM\s*\d{4}-AT\d') { $accAtlas += $a }
       if (-not $acc.ContainsKey($inv)) { $acc[$inv] = $a }
       continue
     }
     $inv = K $v[$i,3]; if (-not $inv) { continue }
-    $a = [pscustomobject]@{ R = $ah0 + $i; Cust = (K $v[$i,1]); Inv = $inv; Mj = (K $v[$i,4]); Bl = (Num $v[$i,6]); Rate = (Num $v[$i,7]); Fc = (Num $v[$i,8]); Krw = (Num $v[$i,9]); Gray = $false; Green = $false }
+    $a = [pscustomobject]@{ R = $ah0 + $i; Cust = (K $v[$i,1]); Inv = $inv; Mj = ((K $v[$i,4]) -replace '-X$', 'X'); Bl = (Num $v[$i,6]); Rate = (Num $v[$i,7]); Fc = (Num $v[$i,8]); Krw = (Num $v[$i,9]); Gray = $false; Green = $false }
+    if ($inv -match '^DSM\s*\d{4}-AT\d') { $accAtlas += $a }   # Atlas 원화 거래 합계용 (같은 번호가 두 줄이어도 모두 더함)
     if ($a.Mj -match '^\d{5}-\d{2}-\d{6}X$') {
       $c = [int]$sa.Range("D$($a.R)").DisplayFormat.Interior.Color; $rr = $c -band 255; $gg = ($c -shr 8) -band 255; $bb = ($c -shr 16) -band 255
       $a.Gray = ($rr -eq $gg -and $gg -eq $bb -and $rr -lt 230); $a.Green = ($c -eq 10213316); $accList += $a
@@ -327,6 +329,12 @@ try {
   $lots = @{}; $alias = @{}
   for ($r = 2; $r -le $last; $r++) {
     $o = K $v[$r,$C['출고Lot']]; $lots[$r] = $o
+    # 번호 앞 작은따옴표(6월 ''DSM2606-AL8TA'), 앞글자 오타(7월 'DSAM2607-SM01', 'SM2607-EM03') → 고쳐서 맞춤 (MES 칸은 그대로, 2026-11-24)
+    $oc = ($o -replace "^['`"‘’]+", '').Trim(); if ($oc -match '^DSAM\d') { $oc = $oc -replace '^DSAM', 'DSM' } elseif ($oc -match '^SM\d{4}-') { $oc = 'D' + $oc }
+    if ($oc -ne $o) {
+      if ($line[$oc] -or $acc[$oc] -or $pdf[$oc]) { $alias[$r] = $o; $lots[$r] = $oc; continue }
+      $cz = @($allKeys | ? { (NZ0 $_) -eq (NZ0 $oc) }); if ($cz.Count -eq 1) { $alias[$r] = $o; $lots[$r] = [string]$cz[0]; continue }
+    }
     if (-not $o -or $o -notmatch '^(DSM|\d{4}P)' -or $line[$o] -or $acc[$o] -or $pdf[$o]) { continue }
     $cand = @($allKeys | ? { (NZ0 $_) -eq (NZ0 $o) })
     if (-not $cand.Count -and $o -match '^((?:DSM|\d{4}P)[^,\s]*)\s*,') { $o3 = $matches[1]; if ($allKeys -contains $o3) { $cand = @($o3) } }   # 번호 뒤 설명 글 (예: 7월 'DSM2607-AL05, 7월 21일 출하') → 쉼표 앞 번호로 맞춤 (사용자 2026-11-24)
@@ -342,6 +350,13 @@ try {
   foreach ($cc in $cBl, $cInv, $cFx, $cUsd) { $rg = $ws.Range($ws.Cells(2,$cc), $ws.Cells($last,$cc)); $rg.ClearContents() | Out-Null; $rg.ClearComments() | Out-Null }
   $blRows = @(); $invRows = @(); $cnt = @{ PDF = 0; LINE = 0; DOM = 0; Red = 0; InvRed = 0; Carry = 0 }
   $grp = [ordered]@{}   # 인보이스별 MES 행 (기초자료달러 배분용)
+  # Atlas Copco: MES 출고Lot 빈칸인 달이 많음(1~8월) → 원화 전자세금계산서 거래라 그달 Atlas MES 합계 = 회계 Atlas(DSM…-AT) 합계면 정상(참고)으로 봄 (2026-11-24)
+  $atRows = @(for ($r = 2; $r -le $last; $r++) { if (-not $lots[$r] -and "$($v[$r,$C['구분']])".Trim() -eq '해외' -and "$($v[$r,$C['고객사']])" -match 'atlas') { $r } })
+  $atMes = [double](($atRows | % { [double](Num $v[$_,$C['금액']]) } | measure -Sum).Sum)
+  $usedAt = @{}; foreach ($r in 2..$last) { if ($lots[$r] -match '-AT\d') { $usedAt[$lots[$r]] = $true } }
+  $atAcc = [double](($accAtlas | ? { -not $usedAt[$_.Inv] } | % { [double]$_.Krw } | measure -Sum).Sum)
+  $atOk = $atRows.Count -and [math]::Abs($atMes - $atAcc) -lt 1
+  if ($atRows.Count) { "Atlas 출고Lot 빈칸 $($atRows.Count)줄: MES {0:N0}원 / 회계 Atlas {1:N0}원 → $(if ($atOk) { '같음(정상, 참고)' } else { '다름(에러)' })" -f $atMes, $atAcc }
   for ($r = 2; $r -le $last; $r++) {
     $lot = $lots[$r]; $kind = "$($v[$r,$C['구분']])".Trim(); $cust = "$($v[$r,$C['고객사']])".Trim()
     $bgI = $ws.Cells($r, $C['출고일']).Interior   # 원래 행 배경(SK05 추가행 주황 등) 유지
@@ -355,6 +370,11 @@ try {
       continue
     }
     if ($pdf[$lot]) { $p = $pdf[$lot]; $src = [pscustomobject]@{ Name = $(if ($p.FromAcc) { '회계 파일(신코·코마츠)' } else { "$($p.File) 매출내역서" }); Bl = $p.BlN; Inv = $lot; Rate = $p.Rate; Fc = $p.Fc } ; $cnt.PDF++ }
+    elseif ($kind -eq '해외' -and $atOk -and -not $lot -and $cust -match 'atlas') {
+      $ws.Cells($r,$cBl).NumberFormat = "@"; $ws.Cells($r,$cBl).Value2 = '원화(Atlas)'
+      if ($r -eq $atRows[0]) { $blRows += ,@($r, $cust, '', $null, '회계 Atlas(전자세금계산서)', $null, ("MES 출고Lot 빈칸 $($atRows.Count)줄이지만 이번 달 Atlas MES 합계 {0:N0}원 = 회계 Atlas 합계 {1:N0}원이라 정상 (참고)" -f $atMes, $atAcc)) }
+      continue
+    }
     elseif ($kind -eq '해외') {
       $cnt.LINE++
       if ($line[$lot]) { $l = $line[$lot]; $src = [pscustomobject]@{ Name = "$lineName $($l.Where)"; Bl = $l.Bl; Inv = $lot; Rate = $l.Rate; Fc = $l.Usd } }
@@ -370,7 +390,7 @@ try {
     # BL날짜
     if ($src -and $src.Bl) { $ws.Cells($r,$cBl).Value2 = [double]$src.Bl; $ws.Cells($r,$cBl).NumberFormat = "yyyy-mm-dd" }
     $why = @()
-    if (-not $src) { $why += "$($lineName)에 인보이스 없음" } elseif (-not $src.Bl) { $why += "$($src.Name)에 BL날짜 없음" }
+    if (-not $src) { $why += "$($lineName)에 인보이스 없음" } elseif (-not $src.Bl) { $why += "$($src.Name)에 BL날짜 없음" + $(if ($cust -match 'bergen' -and $a -and $a.Bl) { " → Bergen은 원화 고정 거래라 회계 BL날짜·환율을 그대로 씀 (참고)" } else { '' }) }
     if (-not $a) { $why += "회계에 인보이스 없음(기준 없음)" }
     elseif ($src -and $src.Bl -and $a.Bl -and [math]::Floor($src.Bl) -ne [math]::Floor($a.Bl)) { $why += "BL날짜 다름: 기초자료 $(DS $src.Bl) / 회계 $(DS $a.Bl)" }
     if ($a -and $a.Bl -ge $nextOA -and -not $src) { $why += "회계 BL일 $(DS $a.Bl) → $nLab 이월 건($($lineName)은 당월 BL분만 있음)" }
@@ -487,8 +507,8 @@ try {
     # 툴링비: 회계는 'DSM2610-24(툴링비)', 라인 파일은 'DSM2610-24' → 뒤 '(툴링비)' 빼고 찾음. 툴링비는 MES 출고가 없는 것이 정상 (2026-11-12, 10월)
     $isTool = $t.Inv -match '툴링'
     if (-not $l -and $t.Inv -match '^(.+?)\s*\(') { $l = $line[$matches[1].Trim()] }   # 'DSM2610-24(툴링비)', 'DSM2602-18 (항공)' → 괄호 앞 번호로 라인 파일 찾음
-    # 'TA'로 끝나는 인보이스(DSM2604-AL1TA 등) = Allison 관세 청구 → MES 출고 없음이 정상 (라인 파일 'ALLISON 관세' 시트, 2026-11-24)
-    $isTA = $t.Inv -match '\d+TA$'
+    # (2026-11-24) 'TA' 인보이스를 관세로 봤다가 취소: 6월 MES에 TA 번호로 실제 HOUSING CENTER 출고가 있고 회계에 면장번호도 있음 → 일반 인보이스와 같게 처리
+    $isTA = $false
     # 인보이스 번호의 연월이 마감월보다 앞(전월 출고분)인데 회계에 녹색 표시만 없는 경우 → 사용자 확인 방식(7월 DSM2606-JS02)대로 전월 출고분으로 봄 (2026-11-24)
     $prevInv = $false; if ($t.Inv -match '^(?:DSM\s*)?(\d{2})(\d{2})' -and [int]$matches[2] -ge 1 -and [int]$matches[2] -le 12) { $prevInv = ([int]$matches[1] * 100 + [int]$matches[2]) -lt ([int]$yy2 * 100 + $mm) }
     $noMes = if ($isTool) { "툴링비라 MES 출고 없음(정상)" } elseif ($isTA) { "관세 청구(TA)라 MES 출고 없음(정상)" } elseif ($t.Green) { "MES $mLab 출고에 없음(전월 출고분)" } elseif ($prevInv) { "MES $mLab 출고에 없음 → 인보이스 번호가 전월 이전 번호라 전월 출고분으로 봄(회계 녹색 표시만 없음, 참고)" } else { "MES $mLab 출고에 없음 → 회계는 이번 달 출하(녹색 아님)라 MES 출고 입력이 빠졌는지 확인해 주세요" }   # 2026-11-12

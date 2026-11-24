@@ -136,12 +136,12 @@ try {
     if ($accOld) {
       $c1 = K $va[$i,1]; if ($c1 -and $c1 -notmatch '소\s*계') { $custO = ($c1 -replace '\s*\((창원|마산\d*|[^()]*공장)\)\s*$', '').Trim() }
       $inv = K $va[$i,2]; if (-not $inv -or $c1 -match '소\s*계') { continue }
-      if (-not $acc.ContainsKey($inv)) { $acc[$inv] = [pscustomobject]@{ R = $i; Cust = $custO; Mj = (K $va[$i,4]); Bl = (ToOA $va[$i,6]); Rate = (Num $va[$i,7]); Fc = (Num $va[$i,8]); Krw = (Num $va[$i,9]); Gray = ([bool](Num $va[$i,11]) -and -not (Num $va[$i,10])) } }
+      if (-not $acc.ContainsKey($inv)) { $acc[$inv] = [pscustomobject]@{ R = $i; Cust = $custO; Mj = ((K $va[$i,4]) -replace '-X$', 'X'); Bl = (ToOA $va[$i,6]); Rate = (Num $va[$i,7]); Fc = (Num $va[$i,8]); Krw = (Num $va[$i,9]); Gray = ([bool](Num $va[$i,11]) -and -not (Num $va[$i,10])) } }
       continue
     }
     $inv = K $va[$i,3]; if (-not $inv) { continue }
     $c0 = [int]$sa.Range("D$i").DisplayFormat.Interior.Color; $rr = $c0 -band 255; $gg = ($c0 -shr 8) -band 255; $bb = ($c0 -shr 16) -band 255
-    if (-not $acc.ContainsKey($inv)) { $acc[$inv] = [pscustomobject]@{ R = $i; Cust = (K $va[$i,1]); Mj = (K $va[$i,4]); Bl = (ToOA $va[$i,6]); Rate = (Num $va[$i,7]); Fc = (Num $va[$i,8]); Krw = (Num $va[$i,9]); Gray = ($rr -eq $gg -and $gg -eq $bb -and $rr -lt 230) } }
+    if (-not $acc.ContainsKey($inv)) { $acc[$inv] = [pscustomobject]@{ R = $i; Cust = (K $va[$i,1]); Mj = ((K $va[$i,4]) -replace '-X$', 'X'); Bl = (ToOA $va[$i,6]); Rate = (Num $va[$i,7]); Fc = (Num $va[$i,8]); Krw = (Num $va[$i,9]); Gray = ($rr -eq $gg -and $gg -eq $bb -and $rr -lt 230) } }
   }
   $wbA.Close($false)
   # 회계 인보이스 뒤 괄호 설명('DSM2602-18 (항공)', 'DSM2610-24(툴링비)') → 괄호 앞 번호로도 찾게 함 (MES·라인 파일은 번호만 씀, 2026-11-24)
@@ -239,7 +239,8 @@ try {
   $six = @{}; $grp = [ordered]@{}; $kind = @{}; $repl = @{}
   for ($r = 2; $r -le $lastD; $r++) {
     $gu = K $v[$r,$HM['구분']]; $cu = K $v[$r,$HM['고객사']]; $lot = K $v[$r,$HM['출고Lot']]; $memo = K $v[$r,$HM['메모']]
-    if ($lot -match '^((?:DSM|\d{4}P)[^,\s]*)\s*,') { $lot = $matches[1] }   # 번호 뒤 설명 글('DSM2607-AL05, 7월 21일 출하') → 쉼표 앞 번호로 묶음 (MES 칸은 그대로, 사용자 2026-11-24)
+    if ($lot -match '^((?:DSM|\d{4}P)[^,\s]*)\s*,') { $lot = $matches[1] }
+    $lot = ($lot -replace "^['`"‘’]+", '').Trim(); if ($lot -match '^DSAM\d') { $lot = $lot -replace '^DSAM', 'DSM' } elseif ($lot -match '^SM\d{4}-') { $lot = 'D' + $lot }   # 앞 작은따옴표·앞글자 오타 (6·7월, 2026-11-24)   # 번호 뒤 설명 글('DSM2607-AL05, 7월 21일 출하') → 쉼표 앞 번호로 묶음 (MES 칸은 그대로, 사용자 2026-11-24)
     if ($memo -match 'replacement') { $repl[$r] = $true }
     $isJ = $sk.Contains($lot) -or $lot -match '^DSM\d{4}-(SK|JS)\d' -or ($lot -match '^DSM' -and $cu -match '신코|코마츠|SHINKO|JS\s*TECH')
     $kind[$r] = if ($isJ) { 'J' } elseif ($gu -eq '해외') { 'O' } else { 'D' }
@@ -264,6 +265,7 @@ try {
   foreach ($lot in @($grp.Keys)) {
     $rows = @($grp[$lot]); $r1 = $rows[0]; $isJ = $kind[$r1] -eq 'J'
     $cu0 = K $v[$r1,$HM['고객사']]; $a = $acc[$lot]; $src = if ($isJ) { $sk[$lot] } else { $line[$lot] }
+    if (-not $a -and -not $src) { $nzK = { param($x) ("$x" -replace '([A-Z])0+(\d)', '$1$2') }; $lot3 = @($acc.Keys | ? { (& $nzK $_) -eq (& $nzK $lot) })[0]; if ($lot3) { $a = $acc[$lot3]; $src = if ($isJ) { $sk[$lot3] } else { $line[$lot3] } } }   # 0 차이 (DSM2606-AL01TA = AL1TA)
     if (-not $a -and -not $src -and $lot -match '^DSM\d{4}[A-Z]') { $lot2 = @($acc.Keys | ? { ($_ -replace '-', '') -eq $lot })[0]; if ($lot2) { $a = $acc[$lot2]; $src = if ($isJ) { $sk[$lot2] } else { $line[$lot2] } } }   # 하이픈 빠짐 (예: DSM2601R01)
     if (-not $a -and -not $src -and $lot -match '^DSM25\d{2}-') { $lot2 = $lot -replace '^DSM25', 'DSM26'; $a = $acc[$lot2]; $src = if ($isJ) { $sk[$lot2] } else { $line[$lot2] } }   # MES 출고Lot 연도 오타 (예: DSM2506-JS02, 2026-11-24)
     $carryA = $a -and ($a.Gray -or ($a.Bl -and $a.Bl -ge $nextOA))
