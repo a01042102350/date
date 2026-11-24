@@ -96,6 +96,7 @@ try {
     }
     $skSrc = "엑셀 " + ((@($xrFile.Values | select -Unique)) -join ', ')
   }
+  $skFromAcc = (-not $pdf.Count) -and (-not $skFs.Count)   # 매출내역서 엑셀·PDF 모두 없음(2026년 1~8월) → 회계 파일 기준 (회계 읽은 뒤 채움)
   foreach ($k in $pdf.Keys) { $p = $pdf[$k]; $p.BlN = [DateTime]::Parse($p.Bl).ToOADate(); $p.Krw = ($p.Split.Values | measure -Sum).Sum + $p.Scrap[0] + $p.Scrap[1] }
   "신코·코마츠 기준: $skSrc / 읽은 인보이스 $($pdf.Count)건" + $(if ($skOut.Count) { " / 빠진 건: " + (($skOut.Keys | % { "$_($($skOut[$_]))" }) -join ', ') } else { '' }) + $(if ($skAlert.Count) { " / 엔화 소수점 알림: " + (($skAlert | % Inv) -join ', ') } else { '' })
   # N월라인: 인보이스별 bl 날짜·환율·달러·원화·6칸
@@ -138,6 +139,22 @@ try {
     if (-not $acc.ContainsKey($inv)) { $acc[$inv] = $a }
   }
   $wb.Close($false)
+
+  # 신코·코마츠 매출내역서가 없는 달(2026년 1~8월): 회계 파일의 SHINKO·JS TECH(코마츠) 줄을 기준으로 씀 (사용자 2026-11-24, 11월부터는 매출내역서 엑셀)
+  #   회계에는 사형·가공 나눔이 없음 → 해외매출 6칸은 MES. 회계 'DSM25MM-JS..'(연도 오타, BL 2026년)는 'DSM26MM-JS..'로도 찾음
+  if ($skFromAcc) {
+    $skFix = @()
+    foreach ($a in @($accList | ? { $_.Cust -match 'SHINKO|JS\s*TECH|코마츠|신코' })) {
+      $keys = @($a.Inv)
+      if ($a.Inv -match '^DSM25\d{2}-(SK|JS)' -and $a.Bl -and [DateTime]::FromOADate($a.Bl).Year -eq 2026) { $k2 = $a.Inv -replace '^DSM25', 'DSM26'; if (-not $acc.ContainsKey($k2)) { $acc[$k2] = $a; $keys += $k2; $skFix += "$($a.Inv)→$k2" } }
+      foreach ($k in $keys) {
+        if ($a.Gray) { $skOut[$k] = "회계 면장번호 회색 → $nLab 이월"; continue }
+        $pdf[$k] = @{ Bl = $(if ($a.Bl) { [DateTime]::FromOADate($a.Bl).ToString('yyyy-MM-dd') } else { '' }); BlN = $a.Bl; Rate = $a.Rate; Fc = $a.Fc; Krw = $a.Krw; Split = @{}; Scrap = @(0.0, 0.0); File = '회계 파일'; Mj = $a.Mj; FromAcc = $true }
+      }
+    }
+    $skSrc = '회계 파일(신코·코마츠 매출내역서 없음)'
+    "신코·코마츠 기준: 회계 파일 / 인보이스 $($pdf.Count)건" + $(if ($skOut.Count) { " / 이월: " + ($skOut.Keys -join ', ') } else { '' }) + $(if ($skFix.Count) { " / 회계 인보이스 연도 오타로 보여 함께 찾음: $($skFix -join ', ')" } else { '' })
+  }
 
   $wb = $xl.Workbooks.Open($mesPath)
   $ws = $wb.Worksheets.Item($sheetName)
@@ -300,7 +317,7 @@ try {
       $bg0 = $ws.Cells($r, $C['출고일']).Interior; if ($bg0.ColorIndex -eq -4142) { $ws.Cells($r, $C['출고Lot']).Interior.ColorIndex = -4142 } else { $ws.Cells($r, $C['출고Lot']).Interior.Color = [int]$bg0.Color } }
   }
   # 신코·코마츠 Lot(DSM…-SK·JS)인데 매출내역서 엑셀에 없음 → 다음 달 이월로 봄 (2026-11-12, 예: 10월 DSM2610-SK02 = 10월 출고·회계에도 없음)
-  for ($r = 2; $r -le $last; $r++) { $o = $lots[$r]; if ($o -and -not $pdf[$o] -and -not $skOut[$o] -and ($o -match '^DSM\d{4}-(SK|JS)\d' -or ($o -match '^DSM' -and "$($v[$r,$C['고객사']])" -match '신코|코마츠'))) { $skOut[$o] = '매출내역서 엑셀에 없음' } }
+  for ($r = 2; $r -le $last; $r++) { $o = $lots[$r]; if ($o -and -not $pdf[$o] -and -not $skOut[$o] -and ($o -match '^DSM\d{4}-(SK|JS)\d' -or ($o -match '^DSM' -and "$($v[$r,$C['고객사']])" -match '신코|코마츠'))) { $skOut[$o] = $(if ($skFromAcc) { '회계 파일에 없음' } else { '매출내역서 엑셀에 없음' }) } }
 
   $cBl = $C['BL날짜']; $cInv = $C['인보이스 번호']; $cFx = $C['기초자료환율']; $cUsd = $C['기초자료달러']
   foreach ($cc in $cBl, $cInv, $cFx, $cUsd) { $rg = $ws.Range($ws.Cells(2,$cc), $ws.Cells($last,$cc)); $rg.ClearContents() | Out-Null; $rg.ClearComments() | Out-Null }
@@ -318,7 +335,7 @@ try {
       $blRows += ,@($r, $cust, $lot, $(if ($a0) { $a0.Bl }), '신코·코마츠 매출내역서', $null, "$($skOut[$lot]) / $(if (-not $a0) { "회계에도 없음 → $nLab 이월 건으로 보임(BL 미발행)" } elseif ($gray0 -or $skOut[$lot] -match '이월') { "회계 면장번호 회색 → $nLab 이월 건" } else { '회계 면장번호가 회색이 아님 → 매출내역서에서 빠졌는지 확인해 주세요' })")
       continue
     }
-    if ($pdf[$lot]) { $p = $pdf[$lot]; $src = [pscustomobject]@{ Name = "$($p.File) 매출내역서"; Bl = $p.BlN; Inv = $lot; Rate = $p.Rate; Fc = $p.Fc } ; $cnt.PDF++ }
+    if ($pdf[$lot]) { $p = $pdf[$lot]; $src = [pscustomobject]@{ Name = $(if ($p.FromAcc) { '회계 파일(신코·코마츠)' } else { "$($p.File) 매출내역서" }); Bl = $p.BlN; Inv = $lot; Rate = $p.Rate; Fc = $p.Fc } ; $cnt.PDF++ }
     elseif ($kind -eq '해외') {
       $cnt.LINE++
       if ($line[$lot]) { $l = $line[$lot]; $src = [pscustomobject]@{ Name = "$lineName $($l.Where)"; Bl = $l.Bl; Inv = $lot; Rate = $l.Rate; Fc = $l.Usd } }
@@ -449,7 +466,7 @@ try {
     $isTool = $t.Inv -match '툴링'
     if (-not $l -and $isTool) { $l = $line[($t.Inv -replace '\s*\(툴링비\)\s*$', '')] }
     $noMes = if ($isTool) { "툴링비라 MES 출고 없음(정상)" } elseif ($t.Green) { "MES $mLab 출고에 없음(전월 출고분)" } else { "MES $mLab 출고에 없음 → 회계는 이번 달 출하(녹색 아님)라 MES 출고 입력이 빠졌는지 확인해 주세요" }   # 2026-11-12
-    if ($p) {
+    if ($p -and -not $p.FromAcc) {
       $cmp = [pscustomobject]@{ N = $p.File; Bl = $p.BlN; Rate = $p.Rate; Fc = $p.Fc; Krw = $p.Krw; Mj = $p.Mj }
       $k0 = 13; foreach ($k in $cats) { $vv = [double]$p.Split[$k]; if ($vv) { $gs.Cells($row, $k0).Value2 = $vv }; $k0++ }
       if ($p.Scrap[0]) { $gs.Cells($row, 19).Value2 = [double]$p.Scrap[0] }; if ($p.Scrap[1]) { $gs.Cells($row, 20).Value2 = [double]$p.Scrap[1] }
@@ -457,7 +474,7 @@ try {
       $gs.Cells($row, 21).Value2 = [string]"$($p.File) 매출내역서(스크랩 별도 칸, 가공은 가공3)"; $nPdf++
       if (-not $mesMj[$t.Mj]) { $note += $noMes }
     } else {
-      $cmp = if ($l) { [pscustomobject]@{ N = $lineName; Bl = $l.Bl; Rate = $l.Rate; Fc = $l.Usd; Krw = $l.Krw; Mj = $null } } else { $null }
+      $cmp = if ($p) { [pscustomobject]@{ N = '회계 파일(신코·코마츠)'; Bl = $p.BlN; Rate = $p.Rate; Fc = $p.Fc; Krw = $p.Krw; Mj = $p.Mj } } elseif ($l) { [pscustomobject]@{ N = $lineName; Bl = $l.Bl; Rate = $l.Rate; Fc = $l.Usd; Krw = $l.Krw; Mj = $null } } else { $null }
       if ($mesMj[$t.Mj]) {
         $k0 = 13; foreach ($k in $cats) { $sc = & $ColL $C[$k]; $gs.Cells($row, $k0).Formula = "=SUMIFS($mesName!${sc}:${sc},$mesName!${mjL}:${mjL},`$A$row)"; $k0++ }
         $gs.Cells($row, 21).Value2 = "MES"; $nMes++

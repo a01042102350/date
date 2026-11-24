@@ -135,6 +135,21 @@ try {
   $wbA.Close($false)
   "$($af.Name) [$accName]: 인보이스 $($acc.Count)건"
 
+  # ── 신코·코마츠 매출내역서 엑셀이 없는 달(2026년 1~8월): 회계 파일의 SHINKO·JS TECH(코마츠) 줄을 기준으로 씀 (사용자 2026-11-24, 11월부터는 매출내역서 엑셀이 들어옴)
+  #    회계에는 사형·가공 나눔이 없으므로 6칸은 MES 그대로. 회계 인보이스 'DSM25MM-JS..'(연도 오타, BL 2026년)는 'DSM26MM-JS..'로도 찾음
+  $skFileCnt = @(Get-ChildItem $base -File | ? { $_.Name -match '신코|코마츠' -and $_.Extension -match '^\.xls' -and $_.Name -notmatch '^~\$' }).Count
+  if (-not $skFileCnt -and -not $sk.Count) {
+    $skFix = @()
+    foreach ($k0 in @($acc.Keys)) {
+      $a = $acc[$k0]; if ($a.Cust -notmatch 'SHINKO|JS\s*TECH|코마츠|신코') { continue }
+      $keys = @($k0)
+      if ($k0 -match '^DSM25\d{2}-(SK|JS)' -and $a.Bl -and [DateTime]::FromOADate($a.Bl).Year -eq 2026) { $k2 = $k0 -replace '^DSM25', 'DSM26'; if (-not $acc.ContainsKey($k2)) { $acc[$k2] = $a; $keys += $k2; $skFix += "$k0→$k2" } }
+      if ($a.Gray) { continue }   # 회색 = 다음 달 이월 → 매출내역서에 없는 것과 같게 처리
+      foreach ($k in $keys) { $sk[$k] = [pscustomobject]@{ Bl = $a.Bl; Rate = $a.Rate; Fc = $a.Fc; Split = @{}; Where = "회계 파일 [$accName]"; FromAcc = $true } }
+    }
+    "신코·코마츠 매출내역서 엑셀 없음 → 회계 파일 기준: " + $(if ($sk.Count) { ($sk.Keys -join ', ') } else { '없음' }) + $(if ($skFix.Count) { " / 회계 인보이스 연도 오타로 보여 함께 찾음: $($skFix -join ', ')" } else { '' })
+  }
+
   # ── 해외영업팀 N월마감: 당월·이월 면장 시트의 INVOICE NO → 수출신고필증 NO.
   $mg = @{}
   $gf = @(Get-ChildItem $base -File | ? { $_.Name -match "^$($mm)월마감" -and $_.Extension -match '^\.xls' -and $_.Name -notmatch '^~\$' })[0]
@@ -294,7 +309,7 @@ try {
       if ($mw) { [void]$redE.Add(@($r, '수출면장 번호')); $mjRows += ,@([double]$r, (K $v[$r,$HM['고객사']]), $lot, $am0, $(if ($a) { "$accName!R$($a.R)" } else { '' }), $cmpMj, $cmpW, $mw) }
     }
     # 신코·코마츠: 매출내역서 금액(사형+스크랩, 금형+스크랩, 가공3)을 MES 라인별 금액 비율로 줄에 나눔
-    if ($isJ -and $src) {
+    if ($isJ -and $src -and $src.Split.Count) {   # 회계 파일 기준(나눔 없음)이면 MES 6칸 그대로
       $orig6 = @{}; foreach ($r in $rows) { $orig6[$r] = $six[$r]; $six[$r] = @{ '__sk' = $true } }
       foreach ($cat in @($src.Split.Keys)) {
         $tot0 = [double]$src.Split[$cat]; if (-not $tot0) { continue }
