@@ -327,6 +327,7 @@ try {
     $o = K $v[$r,$C['출고Lot']]; $lots[$r] = $o
     if (-not $o -or $o -notmatch '^(DSM|\d{4}P)' -or $line[$o] -or $acc[$o] -or $pdf[$o]) { continue }
     $cand = @($allKeys | ? { (NZ0 $_) -eq (NZ0 $o) })
+    if (-not $cand.Count -and $o -match '^((?:DSM|\d{4}P)[^,\s]*)\s*,') { $o3 = $matches[1]; if ($allKeys -contains $o3) { $cand = @($o3) } }   # 번호 뒤 설명 글 (예: 7월 'DSM2607-AL05, 7월 21일 출하') → 쉼표 앞 번호로 맞춤 (사용자 2026-11-24)
     if (-not $cand.Count -and $o -match '^DSM\d{4}[A-Z]') { $cand = @($allKeys | ? { ($_ -replace '-', '') -eq $o }) }   # 하이픈 빠짐 (예: 1월 DSM2601R01 = DSM2601-R01, 2026-11-24)
     if (-not $cand.Count -and $o -match '^DSM25\d{2}-') { $o2 = $o -replace '^DSM25', 'DSM26'; if ($allKeys -contains $o2) { $cand = @($o2) } }   # MES 출고Lot 연도 오타 (예: 6월 DSM2506-JS02 = DSM2606-JS02, 2026-11-24)
     if ($cand.Count -eq 1) { $alias[$r] = $o; $lots[$r] = [string]$cand[0]   # 사용자 확인 완료(12) → 에러 표시 안 함, 행 배경색 그대로

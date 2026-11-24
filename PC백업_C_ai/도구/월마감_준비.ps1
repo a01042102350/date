@@ -237,6 +237,7 @@ try {
   $six = @{}; $grp = [ordered]@{}; $kind = @{}; $repl = @{}
   for ($r = 2; $r -le $lastD; $r++) {
     $gu = K $v[$r,$HM['구분']]; $cu = K $v[$r,$HM['고객사']]; $lot = K $v[$r,$HM['출고Lot']]; $memo = K $v[$r,$HM['메모']]
+    if ($lot -match '^((?:DSM|\d{4}P)[^,\s]*)\s*,') { $lot = $matches[1] }   # 번호 뒤 설명 글('DSM2607-AL05, 7월 21일 출하') → 쉼표 앞 번호로 묶음 (MES 칸은 그대로, 사용자 2026-11-24)
     if ($memo -match 'replacement') { $repl[$r] = $true }
     $isJ = $sk.Contains($lot) -or $lot -match '^DSM\d{4}-(SK|JS)\d' -or ($lot -match '^DSM' -and $cu -match '신코|코마츠|SHINKO|JS\s*TECH')
     $kind[$r] = if ($isJ) { 'J' } elseif ($gu -eq '해외') { 'O' } else { 'D' }
