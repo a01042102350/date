@@ -313,6 +313,7 @@ try {
     $o = K $v[$r,$C['출고Lot']]; $lots[$r] = $o
     if (-not $o -or $o -notmatch '^(DSM|\d{4}P)' -or $line[$o] -or $acc[$o] -or $pdf[$o]) { continue }
     $cand = @($allKeys | ? { (NZ0 $_) -eq (NZ0 $o) })
+    if (-not $cand.Count -and $o -match '^DSM25\d{2}-') { $o2 = $o -replace '^DSM25', 'DSM26'; if ($allKeys -contains $o2) { $cand = @($o2) } }   # MES 출고Lot 연도 오타 (예: 6월 DSM2506-JS02 = DSM2606-JS02, 2026-11-24)
     if ($cand.Count -eq 1) { $alias[$r] = $o; $lots[$r] = [string]$cand[0]   # 사용자 확인 완료(12) → 에러 표시 안 함, 행 배경색 그대로
       $bg0 = $ws.Cells($r, $C['출고일']).Interior; if ($bg0.ColorIndex -eq -4142) { $ws.Cells($r, $C['출고Lot']).Interior.ColorIndex = -4142 } else { $ws.Cells($r, $C['출고Lot']).Interior.Color = [int]$bg0.Color } }
   }
@@ -449,6 +450,8 @@ try {
   for ($j = 0; $j -lt $gh.Count; $j++) { $gs.Cells(1, $j + 1).Value2 = [string]$gh[$j] }
   $mesMj = @{}; for ($r = 2; $r -le $last; $r++) { $m0 = "$($ws.Cells($r,$C['수출면장 번호']).Value2)".Trim(); if ($m0) { $mesMj[$m0]++ } }
   $row = 2; $nPdf = 0; $nMes = 0; $nRef = 0; $nRed = 0; $gsNotes = @()
+  $okInv = @{}; $okF0 = "$base\확인완료.csv"
+  if (Test-Path $okF0) { foreach ($o0 in @(Import-Csv $okF0 -Encoding UTF8)) { if ("$($o0.항목)" -match '^해외' -and "$($o0.거래처)".Trim()) { $okInv["$($o0.거래처)".Trim()] = [pscustomobject]@{ Why = "$($o0.사유)".Trim(); D = "$($o0.확인일)".Trim() } } } }
   foreach ($t in @($accList | ? { -not $_.Gray })) {
     $note = @()
     $gs.Cells($row, 1).NumberFormat = "@"; $gs.Cells($row, 1).Value2 = [string]$t.Mj
@@ -493,6 +496,8 @@ try {
       if ($cmp.Fc -and (-not $t.Fc -or [math]::Abs($cmp.Fc - $t.Fc) -gt 0.01)) { $gs.Cells($row, 8).Interior.Color = $RED; $note += "외화: {0} {1:N2} ≠ 회계 {2:N2}" -f $cmp.N, $cmp.Fc, $t.Fc }
       if ($cmp.Krw -and (-not $t.Krw -or [math]::Abs($cmp.Krw - $t.Krw) -gt 0.5)) { $gs.Cells($row, 9).Interior.Color = $RED; $note += "원화 금액 다름: {0} 합계 {1:N0}원 / 회계 {2:N0}원 → {3:N0}원 {4}{5}" -f $cmp.N, $cmp.Krw, $t.Krw, [math]::Abs($cmp.Krw - $t.Krw), $(if ($cmp.Krw -lt $t.Krw) { '적음' } else { '많음' }), $(if ($p) { $al0 = @($skAlert | ? { $_.Inv -eq $t.Inv })[0]; if ($al0) { ". 매출내역서 엑셀 엔화가 {0:N2}엔(소수점)이라 원화가 달라짐. 회계 {1:N0}엔이 맞음 → 이번 달에도 국내팀 엑셀 엔화 소수점을 확인해 주세요 (알림)" -f $al0.Raw, $t.Fc } else { ". 회계(엔화×환율)가 맞음 → 매출내역서 항목별 금액(사형·금형·가공·스크랩) 확인 필요" } } else { '' }) }
     }
+    # 월 폴더 확인완료.csv에 사용자가 정상이라고 확인한 해외 인보이스(항목 '해외…', 거래처 칸 = 인보이스 번호) → 'MES 출고 없음'은 에러 대신 참고 (2026-11-24, 7월 DSM2606-JS02 = 6월 출고·7월 매출)
+    $okI = $okInv[$t.Inv]; if ($okI) { $note = @($note | % { if ($_ -match '입력이 빠졌는지') { "MES $mLab 출고에 없음 → 사용자 확인: $($okI.Why) ($($okI.D))" } else { $_ } }) }
     if ($note | ? { $_ -match '≠|없음\(비교|금액 다름|입력이 빠졌는지' }) { $nRed++; $gsNotes += "  $($t.Inv)`t$($note -join ' / ')" }
     if ($note) { $gs.Cells($row, 22).Value2 = [string]($note -join ' / ') }
     $row++

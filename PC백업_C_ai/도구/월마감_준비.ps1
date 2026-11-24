@@ -250,6 +250,7 @@ try {
   foreach ($lot in @($grp.Keys)) {
     $rows = @($grp[$lot]); $r1 = $rows[0]; $isJ = $kind[$r1] -eq 'J'
     $cu0 = K $v[$r1,$HM['고객사']]; $a = $acc[$lot]; $src = if ($isJ) { $sk[$lot] } else { $line[$lot] }
+    if (-not $a -and -not $src -and $lot -match '^DSM25\d{2}-') { $lot2 = $lot -replace '^DSM25', 'DSM26'; $a = $acc[$lot2]; $src = if ($isJ) { $sk[$lot2] } else { $line[$lot2] } }   # MES 출고Lot 연도 오타 (예: DSM2506-JS02, 2026-11-24)
     $carryA = $a -and ($a.Gray -or ($a.Bl -and $a.Bl -ge $nextOA))
     $isBergen = $cu0 -match 'bergen' -or ($a -and $a.Cust -match 'BERGEN')
     $isKrw = -not $isJ -and (($a -and $a.Mj -match '전자세금계산서') -or $cu0 -match 'atlas' -or ($src -and -not $src.Rate -and -not $src.Usd -and -not $isBergen))
