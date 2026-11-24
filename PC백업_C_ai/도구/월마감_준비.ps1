@@ -261,6 +261,7 @@ try {
   foreach ($lot in @($grp.Keys)) {
     $rows = @($grp[$lot]); $r1 = $rows[0]; $isJ = $kind[$r1] -eq 'J'
     $cu0 = K $v[$r1,$HM['고객사']]; $a = $acc[$lot]; $src = if ($isJ) { $sk[$lot] } else { $line[$lot] }
+    if (-not $a -and -not $src -and $lot -match '^DSM\d{4}[A-Z]') { $lot2 = @($acc.Keys | ? { ($_ -replace '-', '') -eq $lot })[0]; if ($lot2) { $a = $acc[$lot2]; $src = if ($isJ) { $sk[$lot2] } else { $line[$lot2] } } }   # 하이픈 빠짐 (예: DSM2601R01)
     if (-not $a -and -not $src -and $lot -match '^DSM25\d{2}-') { $lot2 = $lot -replace '^DSM25', 'DSM26'; $a = $acc[$lot2]; $src = if ($isJ) { $sk[$lot2] } else { $line[$lot2] } }   # MES 출고Lot 연도 오타 (예: DSM2506-JS02, 2026-11-24)
     $carryA = $a -and ($a.Gray -or ($a.Bl -and $a.Bl -ge $nextOA))
     $isBergen = $cu0 -match 'bergen' -or ($a -and $a.Cust -match 'BERGEN')

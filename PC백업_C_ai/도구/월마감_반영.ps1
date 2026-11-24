@@ -137,7 +137,9 @@ try {
     if ($accOld) {
       $c1 = K $v[$i,1]; if ($c1 -and $c1 -notmatch '소\s*계') { $custO = ($c1 -replace '\s*\((창원|마산\d*|[^()]*공장)\)\s*$', '').Trim() }
       $inv = K $v[$i,2]; if (-not $inv -or $c1 -match '소\s*계') { continue }
-      $a = [pscustomobject]@{ R = $ah0 + $i; Cust = $custO; Inv = $inv; Mj = (K $v[$i,4]); Bl = (Num $v[$i,6]); Rate = (Num $v[$i,7]); Fc = (Num $v[$i,8]); Krw = (Num $v[$i,9]); Gray = ([bool](Num $v[$i,11]) -and -not (Num $v[$i,10])); Green = $false }
+      # 옛 형식엔 '전월 출하' 녹색이 없음 → 인보이스 번호의 연월(DSM2512-…, 2512P…)이 마감월보다 앞이면 전월 출하로 봄 (대략)
+      $gO = $false; if ($inv -match '^(?:DSM\s*)?(\d{2})(\d{2})') { $gO = ([int]$matches[1] * 100 + [int]$matches[2]) -lt ([int]$yy2 * 100 + $mm) }
+      $a = [pscustomobject]@{ R = $ah0 + $i; Cust = $custO; Inv = $inv; Mj = (K $v[$i,4]); Bl = (Num $v[$i,6]); Rate = (Num $v[$i,7]); Fc = (Num $v[$i,8]); Krw = (Num $v[$i,9]); Gray = ([bool](Num $v[$i,11]) -and -not (Num $v[$i,10])); Green = $gO }
       if ($a.Mj -match '^\d{5}-\d{2}-\d{6}X$') { $accList += $a }
       if (-not $acc.ContainsKey($inv)) { $acc[$inv] = $a }
       continue
@@ -325,6 +327,7 @@ try {
     $o = K $v[$r,$C['출고Lot']]; $lots[$r] = $o
     if (-not $o -or $o -notmatch '^(DSM|\d{4}P)' -or $line[$o] -or $acc[$o] -or $pdf[$o]) { continue }
     $cand = @($allKeys | ? { (NZ0 $_) -eq (NZ0 $o) })
+    if (-not $cand.Count -and $o -match '^DSM\d{4}[A-Z]') { $cand = @($allKeys | ? { ($_ -replace '-', '') -eq $o }) }   # 하이픈 빠짐 (예: 1월 DSM2601R01 = DSM2601-R01, 2026-11-24)
     if (-not $cand.Count -and $o -match '^DSM25\d{2}-') { $o2 = $o -replace '^DSM25', 'DSM26'; if ($allKeys -contains $o2) { $cand = @($o2) } }   # MES 출고Lot 연도 오타 (예: 6월 DSM2506-JS02 = DSM2606-JS02, 2026-11-24)
     if ($cand.Count -eq 1) { $alias[$r] = $o; $lots[$r] = [string]$cand[0]   # 사용자 확인 완료(12) → 에러 표시 안 함, 행 배경색 그대로
       $bg0 = $ws.Cells($r, $C['출고일']).Interior; if ($bg0.ColorIndex -eq -4142) { $ws.Cells($r, $C['출고Lot']).Interior.ColorIndex = -4142 } else { $ws.Cells($r, $C['출고Lot']).Interior.Color = [int]$bg0.Color } }
