@@ -144,6 +144,8 @@ try {
     if (-not $acc.ContainsKey($inv)) { $acc[$inv] = [pscustomobject]@{ R = $i; Cust = (K $va[$i,1]); Mj = (K $va[$i,4]); Bl = (ToOA $va[$i,6]); Rate = (Num $va[$i,7]); Fc = (Num $va[$i,8]); Krw = (Num $va[$i,9]); Gray = ($rr -eq $gg -and $gg -eq $bb -and $rr -lt 230) } }
   }
   $wbA.Close($false)
+  # 회계 인보이스 뒤 괄호 설명('DSM2602-18 (항공)', 'DSM2610-24(툴링비)') → 괄호 앞 번호로도 찾게 함 (MES·라인 파일은 번호만 씀, 2026-11-24)
+  foreach ($k0 in @($acc.Keys)) { if ($k0 -match '^(.+?)\s*\(') { $b0 = $matches[1].Trim(); if (-not $acc.ContainsKey($b0)) { $acc[$b0] = $acc[$k0] } } }
   "$($af.Name) [$accName]: 인보이스 $($acc.Count)건"
 
   # ── 신코·코마츠 매출내역서 엑셀이 없는 달(2026년 1~8월): 회계 파일의 SHINKO·JS TECH(코마츠) 줄을 기준으로 씀 (사용자 2026-11-24, 11월부터는 매출내역서 엑셀이 들어옴)
@@ -338,7 +340,7 @@ try {
       foreach ($r in $rows) { $gray6[$r] = $true; $red6.Remove($r) }
     }
     # 해외: MES 6칸 비율 ↔ N월라인 비율 (0.5%p 넘게 다르면 참고)
-    if (-not $isJ -and $src -and $src.Split.Count) {
+    if (-not $isJ -and -not $isBergen -and $src -and $src.Split.Count) {   # Bergen은 원화 거래라 라인 파일 나눔(가공 없음)과 비율 비교 안 함 (2026-11-24)
       $ms = @{}; foreach ($c0 in $cats) { $ms[$c0] = [double](($rows | ? { -not $repl[$_] } | % { [double]$six[$_][$c0] } | measure -Sum).Sum) }
       $tm = ($ms.Values | measure -Sum).Sum; $tl = ($src.Split.Values | measure -Sum).Sum
       if ($tm -and $tl) {

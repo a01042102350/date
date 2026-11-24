@@ -153,6 +153,8 @@ try {
     if (-not $acc.ContainsKey($inv)) { $acc[$inv] = $a }
   }
   $wb.Close($false)
+  # 회계 인보이스 뒤 괄호 설명('DSM2602-18 (항공)') → 라인 파일은 번호만 씀 → 괄호 붙은 번호로도 라인 파일을 찾게 함 (2026-11-24)
+  foreach ($k0 in @($acc.Keys)) { if ($k0 -match '^(.+?)\s*\(') { $b0 = $matches[1].Trim(); if (-not $line.ContainsKey($k0) -and $line.ContainsKey($b0)) { $line[$k0] = $line[$b0] } } }
 
   # 신코·코마츠 매출내역서가 없는 달(2026년 1~8월): 회계 파일의 SHINKO·JS TECH(코마츠) 줄을 기준으로 씀 (사용자 2026-11-24, 11월부터는 매출내역서 엑셀)
   #   회계에는 사형·가공 나눔이 없음 → 해외매출 6칸은 MES. 회계 'DSM25MM-JS..'(연도 오타, BL 2026년)는 'DSM26MM-JS..'로도 찾음
