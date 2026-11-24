@@ -355,6 +355,8 @@ try {
       $hit = @($cand | ? { $_.D -eq $dt -and $_.Q -eq $qq })[0]; if (-not $hit) { $hit = @($cand | ? { $_.D -eq $dt })[0] }; if (-not $hit -and $cand.Count -eq 1) { $hit = $cand[0] }
       if (-not $hit -or -not $hit.Ln) { continue }
       $ml = K $v[$r,$HM['라인구분']]; $dl = $hit.Ln.Substring(0, 1)
+      # 사용자 2026-11-24: '생' = 생형(사형 방식) → 사형으로 비교, '구' = 구매품(주조 라인 아님) → 라인 비교 안 함
+      if ($dl -eq '구') { continue }; if ($dl -eq '생') { $dl = '사' }
       $why0 = if ('사', '자', '금' -notcontains $dl) { "일별마감 라인 코드 '$($hit.Ln)'는 사/자/금이 아님 → 비교 불가(MES 기준 분해, 참고)" } elseif ($code[$ml] -ne $dl) { "라인 다름: MES 라인구분 '$ml' / 일별마감 라인 '$($hit.Ln)' → 어느 쪽이 맞는지 확인해 주세요" } else { $null }
       if ($why0) { $lnRows += ,@([double]$r, (K $v[$r,$HM['고객사']]), (K $v[$r,$HM['출고Lot']]), "일별마감 $dSheet!R$($hit.R)", "MES 라인구분: $ml", "일별마감 라인: $($hit.Ln)", $why0) }
     }

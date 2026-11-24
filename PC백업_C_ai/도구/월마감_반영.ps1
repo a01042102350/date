@@ -878,7 +878,13 @@ try {
     if ($e[0] -eq '라인구분') {
       $full = @{ '사' = '사형'; '자' = '자동'; '금' = '금형' }
       $mesL = ($baseT -replace '^MES 라인구분:\s*', '').Trim(); $dayL = if ($cmpT -match '일별마감 라인:\s*(\S+)') { $matches[1].Trim() } else { '' }
-      if ($why -match '사/자/금이 아님') {
+      # 사용자 2026-11-24: 일별마감 '구' = 구매품(주조 라인 아님) → 목록에서 뺌, '생' = 생형(사형 방식) → MES가 사형이면 정상
+      if ($why -match '사/자/금이 아님' -and $dayL -match '^구') { continue }
+      if ($why -match '사/자/금이 아님' -and $dayL -match '^생') {
+        if ($mesL -match '사형' -or -not $mesL) { continue }
+        $baseT = "MES: $mesL"; $cmpT = "일별마감: 생형(사형)"; $why = "라인 다름: MES '$mesL' / 일별마감 '생'(생형 = 사형) → 어느 쪽이 맞는지 확인해 주세요"
+      }
+      elseif ($why -match '사/자/금이 아님') {
         $baseT = "MES: $(if ($mesL) { $mesL } else { '라인 없음' })"; $cmpT = "일별마감: '$dayL' (사형·자동·금형이 아님)"
         $why = if ($mesL) { "일별마감 파일에 라인이 '$dayL'(으)로 적혀 있어 맞는지 확인할 수 없음. MES에 적힌 '$mesL'(으)로 금액을 나눠 둠. → 일별마감 라인을 사형·자동·금형 중 하나로 고쳐 주세요 (참고)" }
                 else { "일별마감 파일에는 '$dayL', MES에는 라인이 비어 있어 어느 라인(사형·자동·금형)인지 알 수 없음. → 라인을 확인해 주세요 (참고)" }
