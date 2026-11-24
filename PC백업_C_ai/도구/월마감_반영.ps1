@@ -339,6 +339,8 @@ try {
     $cand = @($allKeys | ? { (NZ0 $_) -eq (NZ0 $o) })
     if (-not $cand.Count -and $o -match '^((?:DSM|\d{4}P)[^,\s]*)\s*,') { $o3 = $matches[1]; if ($allKeys -contains $o3) { $cand = @($o3) } }   # 번호 뒤 설명 글 (예: 7월 'DSM2607-AL05, 7월 21일 출하') → 쉼표 앞 번호로 맞춤 (사용자 2026-11-24)
     if (-not $cand.Count -and $o -match '^DSM\d{4}[A-Z]') { $cand = @($allKeys | ? { ($_ -replace '-', '') -eq $o }) }   # 하이픈 빠짐 (예: 1월 DSM2601R01 = DSM2601-R01, 2026-11-24)
+    if (-not $cand.Count -and $o -match '^DSM(\d{4})-0*(\d+)TA$') { $o5 = "DSM$($matches[1])-AL$($matches[2])TA"; if ($allKeys -contains $o5) { $cand = @($o5) } }   # Allison TA 번호에 'AL' 빠짐 (6월 DSM2606-03TA = AL3TA, 7월 01TA = AL1TA, 2026-11-24)
+    if (-not $cand.Count -and $o -match '^DSM(\d{4})-(\d)AL$') { $o6 = "DSM$($matches[1])-AL0$($matches[2])"; if ($allKeys -contains $o6) { $cand = @($o6) } }   # 'DSM2608-1AL' = AL01 (글자 순서 바뀜)
     if (-not $cand.Count -and $o -match '^DSM25\d{2}-') { $o2 = $o -replace '^DSM25', 'DSM26'; if ($allKeys -contains $o2) { $cand = @($o2) } }   # MES 출고Lot 연도 오타 (예: 6월 DSM2506-JS02 = DSM2606-JS02, 2026-11-24)
     if ($cand.Count -eq 1) { $alias[$r] = $o; $lots[$r] = [string]$cand[0]   # 사용자 확인 완료(12) → 에러 표시 안 함, 행 배경색 그대로
       $bg0 = $ws.Cells($r, $C['출고일']).Interior; if ($bg0.ColorIndex -eq -4142) { $ws.Cells($r, $C['출고Lot']).Interior.ColorIndex = -4142 } else { $ws.Cells($r, $C['출고Lot']).Interior.Color = [int]$bg0.Color } }

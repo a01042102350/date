@@ -265,7 +265,9 @@ try {
   foreach ($lot in @($grp.Keys)) {
     $rows = @($grp[$lot]); $r1 = $rows[0]; $isJ = $kind[$r1] -eq 'J'
     $cu0 = K $v[$r1,$HM['고객사']]; $a = $acc[$lot]; $src = if ($isJ) { $sk[$lot] } else { $line[$lot] }
-    if (-not $a -and -not $src) { $nzK = { param($x) ("$x" -replace '([A-Z])0+(\d)', '$1$2') }; $lot3 = @($acc.Keys | ? { (& $nzK $_) -eq (& $nzK $lot) })[0]; if ($lot3) { $a = $acc[$lot3]; $src = if ($isJ) { $sk[$lot3] } else { $line[$lot3] } } }   # 0 차이 (DSM2606-AL01TA = AL1TA)
+    $lot2 = $null; $lot3 = $null; $lot5 = $null
+    if (-not $a -and -not $src -and $lot -match '^DSM(\d{4})-0*(\d+)TA$') { $lot5 = "DSM$($matches[1])-AL$($matches[2])TA"; if ($acc[$lot5]) { $a = $acc[$lot5]; $src = $line[$lot5] } else { $lot5 = $null } }   # Allison TA 번호 'AL' 빠짐 (DSM2606-03TA = AL3TA)
+    if (-not $a -and -not $src) { $nzK ={ param($x) ("$x" -replace '([A-Z])0+(\d)', '$1$2') }; $lot3 = @($acc.Keys | ? { (& $nzK $_) -eq (& $nzK $lot) })[0]; if ($lot3) { $a = $acc[$lot3]; $src = if ($isJ) { $sk[$lot3] } else { $line[$lot3] } } }   # 0 차이 (DSM2606-AL01TA = AL1TA)
     if (-not $a -and -not $src -and $lot -match '^DSM\d{4}[A-Z]') { $lot2 = @($acc.Keys | ? { ($_ -replace '-', '') -eq $lot })[0]; if ($lot2) { $a = $acc[$lot2]; $src = if ($isJ) { $sk[$lot2] } else { $line[$lot2] } } }   # 하이픈 빠짐 (예: DSM2601R01)
     if (-not $a -and -not $src -and $lot -match '^DSM25\d{2}-') { $lot2 = $lot -replace '^DSM25', 'DSM26'; $a = $acc[$lot2]; $src = if ($isJ) { $sk[$lot2] } else { $line[$lot2] } }   # MES 출고Lot 연도 오타 (예: DSM2506-JS02, 2026-11-24)
     $carryA = $a -and ($a.Gray -or ($a.Bl -and $a.Bl -ge $nextOA))
@@ -313,7 +315,8 @@ try {
         if (-not $isKrw) { [void]$redE.Add(@($r, '달러')) } }
     }
     # 수출면장 번호 = 회계 ↔ N월마감
-    $g1 = $mg[$lot]; $am0 = if ($a) { $a.Mj } else { '' }; $cmpMj = if ($g1) { $g1.Mj } else { '' }; $cmpW = if ($g1) { $g1.Where } else { '' }
+    $g1 = $mg[$lot]; if (-not $g1) { foreach ($kk in @($lot2, $lot3, $lot5)) { if ($kk -and $mg[$kk]) { $g1 = $mg[$kk]; break } } }   # 번호 오타로 회계를 찾은 경우 같은 번호로 마감 파일도 찾음
+    $am0 = if ($a) { $a.Mj } else { '' }; $cmpMj = if ($g1) { $g1.Mj } else { '' }; $cmpW = if ($g1) { $g1.Where } else { '' }
     $mjV = $null; $mw = $null
     if (-not $a) { $mw = if ($isJ -and -not $src) { "회계·매출내역서에 인보이스 없음 → $nLab 이월 건으로 보임(BL 미발행)" } else { '회계에 인보이스 없음' } }
     elseif ($am0 -match '전자세금계산서') { $mw = if ($cmpMj) { "$($mLab)마감 번호 $cmpMj" } else { "$($mLab)마감 번호 비어 있음" } }
