@@ -408,7 +408,8 @@ try {
       if (-not $a) { $why += "회계에 인보이스 없음(기준 없음)" }
       else {
         if (-not $a.Rate -or [math]::Abs($a.Rate - $src.Rate) -ge 0.00005) { $why += "환율 다름: 기초자료 $($src.Rate) / 회계 $($a.Rate)"; foreach ($r in $rows) { $ws.Cells($r,$cFx).Interior.Color = $RED } }
-        if (-not $a.Fc -or [math]::Abs($a.Fc - $src.Fc) -gt 0.01) { $why += "외화금액 다름: 기초자료 {0:N2} / 회계 {1:N2}" -f $src.Fc, $a.Fc; foreach ($r in $rows) { $ws.Cells($r,$cUsd).Interior.Color = $RED } }
+        # Bergen = 원화 거래, 라인 파일에 외화 없음 → 외화 비교 안 함 (2026-11-24)
+        if ((-not $a.Fc -or [math]::Abs($a.Fc - $src.Fc) -gt 0.01) -and -not ("$($a.Cust)" -match 'BERGEN' -and -not $src.Fc)) { $why += "외화금액 다름: 기초자료 {0:N2} / 회계 {1:N2}" -f $src.Fc, $a.Fc; foreach ($r in $rows) { $ws.Cells($r,$cUsd).Interior.Color = $RED } }
       }
     }
     if (-not $src) { foreach ($r in $rows) { $ws.Cells($r,$cFx).Interior.Color = $RED; $ws.Cells($r,$cUsd).Interior.Color = $RED } }
@@ -483,8 +484,12 @@ try {
     $p = $pdf[$t.Inv]; $l = $line[$t.Inv]
     # 툴링비: 회계는 'DSM2610-24(툴링비)', 라인 파일은 'DSM2610-24' → 뒤 '(툴링비)' 빼고 찾음. 툴링비는 MES 출고가 없는 것이 정상 (2026-11-12, 10월)
     $isTool = $t.Inv -match '툴링'
-    if (-not $l -and $isTool) { $l = $line[($t.Inv -replace '\s*\(툴링비\)\s*$', '')] }
-    $noMes = if ($isTool) { "툴링비라 MES 출고 없음(정상)" } elseif ($t.Green) { "MES $mLab 출고에 없음(전월 출고분)" } else { "MES $mLab 출고에 없음 → 회계는 이번 달 출하(녹색 아님)라 MES 출고 입력이 빠졌는지 확인해 주세요" }   # 2026-11-12
+    if (-not $l -and $t.Inv -match '^(.+?)\s*\(') { $l = $line[$matches[1].Trim()] }   # 'DSM2610-24(툴링비)', 'DSM2602-18 (항공)' → 괄호 앞 번호로 라인 파일 찾음
+    # 'TA'로 끝나는 인보이스(DSM2604-AL1TA 등) = Allison 관세 청구 → MES 출고 없음이 정상 (라인 파일 'ALLISON 관세' 시트, 2026-11-24)
+    $isTA = $t.Inv -match '\d+TA$'
+    # 인보이스 번호의 연월이 마감월보다 앞(전월 출고분)인데 회계에 녹색 표시만 없는 경우 → 사용자 확인 방식(7월 DSM2606-JS02)대로 전월 출고분으로 봄 (2026-11-24)
+    $prevInv = $false; if ($t.Inv -match '^(?:DSM\s*)?(\d{2})(\d{2})' -and [int]$matches[2] -ge 1 -and [int]$matches[2] -le 12) { $prevInv = ([int]$matches[1] * 100 + [int]$matches[2]) -lt ([int]$yy2 * 100 + $mm) }
+    $noMes = if ($isTool) { "툴링비라 MES 출고 없음(정상)" } elseif ($isTA) { "관세 청구(TA)라 MES 출고 없음(정상)" } elseif ($t.Green) { "MES $mLab 출고에 없음(전월 출고분)" } elseif ($prevInv) { "MES $mLab 출고에 없음 → 인보이스 번호가 전월 이전 번호라 전월 출고분으로 봄(회계 녹색 표시만 없음, 참고)" } else { "MES $mLab 출고에 없음 → 회계는 이번 달 출하(녹색 아님)라 MES 출고 입력이 빠졌는지 확인해 주세요" }   # 2026-11-12
     if ($p -and -not $p.FromAcc) {
       $cmp = [pscustomobject]@{ N = $p.File; Bl = $p.BlN; Rate = $p.Rate; Fc = $p.Fc; Krw = $p.Krw; Mj = $p.Mj }
       $k0 = 13; foreach ($k in $cats) { $vv = [double]$p.Split[$k]; if ($vv) { $gs.Cells($row, $k0).Value2 = $vv }; $k0++ }
@@ -504,7 +509,8 @@ try {
       } else { $gs.Range($gs.Cells($row,13), $gs.Cells($row,18)).Interior.Color = $RED; $note += "6칸 분해 자료 없음"; $note += $noMes }
     }
     # 회계와 비교 → 다르면 해당 칸 빨간색
-    if (-not $cmp) { $note += "$($lineName)에 인보이스 없음(비교 불가)" }
+    if (-not $cmp -and $isTA) { $note += "$($lineName)는 관세를 합계로만 적어 인보이스별 비교 안 함(참고)" }
+    elseif (-not $cmp) { $note += "$($lineName)에 인보이스 없음(비교 불가)" }
     else {
       if ($cmp.Bl -and $t.Bl -and [math]::Floor($cmp.Bl) -ne [math]::Floor($t.Bl)) { $gs.Cells($row, 3).Interior.Color = $RED; $note += "BL날짜: $($cmp.N) $(DS $cmp.Bl) ≠ 회계 $(DS $t.Bl)" }
       if ($cmp.Mj -and $cmp.Mj -ne $t.Mj) { $gs.Cells($row, 1).Interior.Color = $RED; $note += "면장번호: $($cmp.N) $($cmp.Mj) ≠ 회계 $($t.Mj)" }
@@ -527,7 +533,7 @@ try {
   $gs.Activate() | Out-Null; $xl.ActiveWindow.SplitRow = 1; $xl.ActiveWindow.SplitColumn = 0; $xl.ActiveWindow.FreezePanes = $true
 
   # 15) 국내매출 시트: MES 국내 출고(신코·코마츠 PDF 건 제외) 고객사별 1줄 + 아마란스 전자세금계산서(매출) 공급가액 비교
-  $kNorm = { param($x) (("$x" -replace '\(주\)|㈜|（주）|주식회사|\(유\)|\s', '' -replace '에스앤티', 'SNT' -replace '디엔솔루션즈', 'DN솔루션즈' -replace '아트라스콥코코리아|아트라스콥코', 'ATLASKOREA').ToUpper()) }   # 거래처명 대응표
+  $kNorm = { param($x) (("$x" -replace '\(주\)|㈜|（주）|주식회사|\(유\)|\s', '' -replace '에스앤티', 'SNT' -replace '디엔솔루션즈', 'DN솔루션즈' -replace '아트라스콥코코리아|아트라스콥코', 'ATLASKOREA' -replace '^STX엔진방산$', 'STX엔진제1사업장').ToUpper()) }   # 거래처명 대응표 (일별마감 1~5월 'STX엔진㈜방산' = 6월부터 '제1사업장', MES·세금계산서는 제1사업장, 2026-11-24)
   # 세금계산서: 홈택스 '매출전자세금계산서목록(…).xls'가 있으면 그것(그 달 전체), 없으면 아마란스 acb2050…/세금계산서 파일 (2026-11-12, 10월: 아마란스 파일은 11/3에 뽑아 34매뿐 → 홈택스 52매 사용)
   $taxF = @(Get-ChildItem $base -File | ? { $_.Name -match '매출전자세금계산서목록' -and $_.Extension -match '^\.xls' -and $_.Name -notmatch '^~\$' } | sort LastWriteTime -Descending) | select -First 1
   if (-not $taxF) { $taxF = @(Get-ChildItem $base -File | ? { $_.Name -match '세금계산서|taxData' -and $_.Extension -match '^\.xls' -and $_.Name -notmatch '^~\$' } | sort { if ($_.Name -match "^$mLab") { 0 } else { 1 } }, Name) | select -First 1 }
