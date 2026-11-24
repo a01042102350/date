@@ -123,13 +123,25 @@ try {
   $accF = @(Get-ChildItem $base -File | ? { $_.Name -match '^회계.*수출' -and $_.Name -match "\($yy\.$mm2\)" -and $_.Name -notmatch '^~\$' })[0]
   if (-not $accF) { throw "회계 수출 파일이 없음 (회계 ... ($yy.$mm2).xlsx)" }
   $accSheet = "$yy2.$mm2(NEW)"
-  $wb = $xl.Workbooks.Open($accF.FullName, 0, $true); $sa = $wb.Worksheets.Item($accSheet)
+  $wb = $xl.Workbooks.Open($accF.FullName, 0, $true)
+  # 옛 형식 'YY.MM (갑)' 시트 (2026년 1월, NEW 시트 없음): A 거래처(첫 줄만), B Invoice, D 면장, F BL, G 환율, H 외화, I 원화, J 당월, K 이월(금액 = 이월) → 같은 모양으로 바꿔 읽음 (사용자 2026-11-24)
+  $accOld = $false; $sa = @($wb.Worksheets | ? { $_.Name -eq $accSheet })[0]
+  if (-not $sa) { $sa = @($wb.Worksheets | ? { $_.Name -match "^$yy2\.$mm2\s*\(갑\)\s*$" })[0]; if ($sa) { $accOld = $true; $accSheet = $sa.Name.Trim(); "  (참고) 회계 '$yy2.$mm2(NEW)' 시트가 없어 옛 형식 '$accSheet' 시트로 읽음 (대략 비교)" } }
+  if (-not $sa) { throw "회계 파일에 '$yy2.$mm2(NEW)' 시트가 없음" }
   $na0 = $sa.UsedRange.Row + $sa.UsedRange.Rows.Count - 1; $vA = $sa.Range("A1:F80").Value2; $ah0 = $null
   for ($i = 1; $i -le 80 -and -not $ah0; $i++) { for ($j = 1; $j -le 6; $j++) { if ("$($vA[$i,$j])".Trim() -eq 'Invoice') { $ah0 = $i; break } } }
   if (-not $ah0) { throw "회계 $accSheet 시트에서 'Invoice' 머리글을 못 찾음" }
-  $v = $sa.Range("A$($ah0 + 1):I$na0").Value2
+  $v = $sa.Range("A$($ah0 + 1):K$na0").Value2; $custO = ''
   for ($i = 1; $i -le ($na0 - $ah0); $i++) {
     if ("$($v[$i,1])" -match '총\s*계') { break }
+    if ($accOld) {
+      $c1 = K $v[$i,1]; if ($c1 -and $c1 -notmatch '소\s*계') { $custO = ($c1 -replace '\s*\((창원|마산\d*|[^()]*공장)\)\s*$', '').Trim() }
+      $inv = K $v[$i,2]; if (-not $inv -or $c1 -match '소\s*계') { continue }
+      $a = [pscustomobject]@{ R = $ah0 + $i; Cust = $custO; Inv = $inv; Mj = (K $v[$i,4]); Bl = (Num $v[$i,6]); Rate = (Num $v[$i,7]); Fc = (Num $v[$i,8]); Krw = (Num $v[$i,9]); Gray = ([bool](Num $v[$i,11]) -and -not (Num $v[$i,10])); Green = $false }
+      if ($a.Mj -match '^\d{5}-\d{2}-\d{6}X$') { $accList += $a }
+      if (-not $acc.ContainsKey($inv)) { $acc[$inv] = $a }
+      continue
+    }
     $inv = K $v[$i,3]; if (-not $inv) { continue }
     $a = [pscustomobject]@{ R = $ah0 + $i; Cust = (K $v[$i,1]); Inv = $inv; Mj = (K $v[$i,4]); Bl = (Num $v[$i,6]); Rate = (Num $v[$i,7]); Fc = (Num $v[$i,8]); Krw = (Num $v[$i,9]); Gray = $false; Green = $false }
     if ($a.Mj -match '^\d{5}-\d{2}-\d{6}X$') {
@@ -144,7 +156,7 @@ try {
   #   회계에는 사형·가공 나눔이 없음 → 해외매출 6칸은 MES. 회계 'DSM25MM-JS..'(연도 오타, BL 2026년)는 'DSM26MM-JS..'로도 찾음
   if ($skFromAcc) {
     $skFix = @()
-    foreach ($a in @($accList | ? { $_.Cust -match 'SHINKO|JS\s*TECH|코마츠|신코' })) {
+    foreach ($a in @($accList | ? { $_.Cust -match 'SHINKO|SINKO|JS\s*TECH|코마츠|신코' })) {
       $keys = @($a.Inv)
       if ($a.Inv -match '^DSM25\d{2}-(SK|JS)' -and $a.Bl -and [DateTime]::FromOADate($a.Bl).Year -eq 2026) { $k2 = $a.Inv -replace '^DSM25', 'DSM26'; if (-not $acc.ContainsKey($k2)) { $acc[$k2] = $a; $keys += $k2; $skFix += "$($a.Inv)→$k2" } }
       foreach ($k in $keys) {

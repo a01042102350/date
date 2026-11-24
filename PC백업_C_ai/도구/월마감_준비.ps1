@@ -122,12 +122,23 @@ try {
   $acc = @{}; $accName = ''
   $af = @(Get-ChildItem $base -File | ? { $_.Name -match '^회계.*수출' -and $_.Name -match "\($yy\.$mm2\)" -and $_.Name -notmatch '^~\$' })[0]
   if (-not $af) { throw "회계 수출 파일이 없음 (회계 ... ($yy.$mm2).xlsx)" }
-  $wbA = $xl.Workbooks.Open($af.FullName, 0, $true); $accName = "$yy2.$mm2(NEW)"; $sa = $wbA.Worksheets.Item($accName)
+  $wbA = $xl.Workbooks.Open($af.FullName, 0, $true); $accName = "$yy2.$mm2(NEW)"
+  # 옛 형식 'YY.MM (갑)' 시트(2026년 1월 회계 파일은 NEW 시트가 없음, 사용자 2026-11-24 '회계 파일도 비교할 수 있는 것만'): A 거래처(첫 줄만), B Invoice, D 면장, F BL, G 환율, H 외화, I 원화, J 당월 매출, K 이월(금액 있으면 이월)
+  $accOld = $false; $sa = @($wbA.Worksheets | ? { $_.Name -eq $accName })[0]
+  if (-not $sa) { $sa = @($wbA.Worksheets | ? { $_.Name -match "^$yy2\.$mm2\s*\(갑\)\s*$" })[0]; if ($sa) { $accOld = $true; $accName = $sa.Name.Trim(); "  (참고) 회계 '$yy2.$mm2(NEW)' 시트가 없어 옛 형식 '$accName' 시트로 읽음" } }
+  if (-not $sa) { $wbA.Close($false); throw "회계 파일에 '$yy2.$mm2(NEW)' 시트가 없음" }
   $na = $sa.UsedRange.Row + $sa.UsedRange.Rows.Count - 1; $va = $sa.Range("A1:K$na").Value2; $ah = $null
   for ($i = 1; $i -le [math]::Min($na, 80) -and -not $ah; $i++) { for ($j = 1; $j -le 6; $j++) { if ("$($va[$i,$j])".Trim() -eq 'Invoice') { $ah = $i; break } } }
   if (-not $ah) { $wbA.Close($false); throw "회계 $accName 시트에서 'Invoice' 머리글을 못 찾음" }
+  $custO = ''
   for ($i = $ah + 1; $i -le $na; $i++) {
     if ("$($va[$i,1])" -match '총\s*계') { break }
+    if ($accOld) {
+      $c1 = K $va[$i,1]; if ($c1 -and $c1 -notmatch '소\s*계') { $custO = ($c1 -replace '\s*\((창원|마산\d*|[^()]*공장)\)\s*$', '').Trim() }
+      $inv = K $va[$i,2]; if (-not $inv -or $c1 -match '소\s*계') { continue }
+      if (-not $acc.ContainsKey($inv)) { $acc[$inv] = [pscustomobject]@{ R = $i; Cust = $custO; Mj = (K $va[$i,4]); Bl = (ToOA $va[$i,6]); Rate = (Num $va[$i,7]); Fc = (Num $va[$i,8]); Krw = (Num $va[$i,9]); Gray = ([bool](Num $va[$i,11]) -and -not (Num $va[$i,10])) } }
+      continue
+    }
     $inv = K $va[$i,3]; if (-not $inv) { continue }
     $c0 = [int]$sa.Range("D$i").DisplayFormat.Interior.Color; $rr = $c0 -band 255; $gg = ($c0 -shr 8) -band 255; $bb = ($c0 -shr 16) -band 255
     if (-not $acc.ContainsKey($inv)) { $acc[$inv] = [pscustomobject]@{ R = $i; Cust = (K $va[$i,1]); Mj = (K $va[$i,4]); Bl = (ToOA $va[$i,6]); Rate = (Num $va[$i,7]); Fc = (Num $va[$i,8]); Krw = (Num $va[$i,9]); Gray = ($rr -eq $gg -and $gg -eq $bb -and $rr -lt 230) } }
@@ -141,7 +152,7 @@ try {
   if (-not $skFileCnt -and -not $sk.Count) {
     $skFix = @()
     foreach ($k0 in @($acc.Keys)) {
-      $a = $acc[$k0]; if ($a.Cust -notmatch 'SHINKO|JS\s*TECH|코마츠|신코') { continue }
+      $a = $acc[$k0]; if ($a.Cust -notmatch 'SHINKO|SINKO|JS\s*TECH|코마츠|신코') { continue }
       $keys = @($k0)
       if ($k0 -match '^DSM25\d{2}-(SK|JS)' -and $a.Bl -and [DateTime]::FromOADate($a.Bl).Year -eq 2026) { $k2 = $k0 -replace '^DSM25', 'DSM26'; if (-not $acc.ContainsKey($k2)) { $acc[$k2] = $a; $keys += $k2; $skFix += "$k0→$k2" } }
       if ($a.Gray) { continue }   # 회색 = 다음 달 이월 → 매출내역서에 없는 것과 같게 처리
