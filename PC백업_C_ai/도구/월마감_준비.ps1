@@ -34,6 +34,7 @@ function ToOA($x) {
   $t = "$x".Trim()
   if ($t -match '^(\d{4})[-./](\d{1,2})[-./](\d{1,2})') { return (New-Object DateTime ([int]$matches[1]), ([int]$matches[2]), ([int]$matches[3])).ToOADate() }
   if ($t -match '^(\d{1,2})\s*/\s*(\d{1,2})$') { return (New-Object DateTime $yy, ([int]$matches[1]), ([int]$matches[2])).ToOADate() }
+  if ($t -match '^(\d{1,2})\s*월\s*(\d{1,2})\s*일$') { return (New-Object DateTime $yy, ([int]$matches[1]), ([int]$matches[2])).ToOADate() }   # 글자로 적힌 날짜 '04월 07일' (4월라인 SAM, 2026-11-25)
   $null
 }
 function Head($p) { $fs = [IO.File]::OpenRead($p); try { $buf = New-Object byte[] 512; $n = $fs.Read($buf, 0, 512); [Text.Encoding]::ASCII.GetString($buf, 0, $n) } finally { $fs.Close() } }
@@ -143,7 +144,7 @@ try {
     }
     $inv = K $va[$i,3]; if (-not $inv) { continue }
     $c0 = [int]$sa.Range("D$i").DisplayFormat.Interior.Color; $rr = $c0 -band 255; $gg = ($c0 -shr 8) -band 255; $bb = ($c0 -shr 16) -band 255
-    if (-not $acc.ContainsKey($inv)) { $acc[$inv] = [pscustomobject]@{ R = $i; Cust = (K $va[$i,1]); Mj = ((K $va[$i,4]) -replace '-X$', 'X'); Bl = (ToOA $va[$i,6]); Rate = (Num $va[$i,7]); Fc = (Num $va[$i,8]); Krw = (Num $va[$i,9]); Gray = ($rr -eq $gg -and $gg -eq $bb -and $rr -lt 230) } }
+    if (-not $acc.ContainsKey($inv)) { $acc[$inv] = [pscustomobject]@{ R = $i; Cust = (K $va[$i,1]); Mj = ((K $va[$i,4]) -replace '-X$', 'X'); Bl = (ToOA $va[$i,6]); Rate = (Num $va[$i,7]); Fc = (Num $va[$i,8]); Krw = (Num $va[$i,9]); Gray = (($rr -eq $gg -and $gg -eq $bb -and $rr -lt 230) -or ([bool](Num $va[$i,11]) -and -not (Num $va[$i,10]))) } }   # 이월 = 회색 또는 원화가 K열(이월)에만 있음 (2026-11-25)
   }
   $wbA.Close($false)
   # 회계 인보이스 뒤 괄호 설명('DSM2602-18 (항공)', 'DSM2610-24(툴링비)') → 괄호 앞 번호로도 찾게 함 (MES·라인 파일은 번호만 씀, 2026-11-24)

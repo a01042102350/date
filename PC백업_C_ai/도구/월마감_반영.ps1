@@ -144,7 +144,8 @@ try {
     for ($i = $hr + 1; $i -le $nr; $i++) {
       $inv = K $v[$i,$col['인보이스']]; if (-not $inv -or $line.ContainsKey($inv)) { continue }
       $sp = @{}; foreach ($c in $cats) { $cc0 = $col[($c -replace '\s', '')]; if ($cc0) { $sp[$c] = [double](Num $v[$i,$cc0]) } }   # 머리글 '금형주조'(띄어쓰기 없음)도 인식 (10월)
-      $line[$inv] = [pscustomobject]@{ Bl = (Num $v[$i,$blC]); Rate = $(if ($col['환율']) { Num $v[$i,$col['환율']] }); Usd = $(if ($col['달러']) { Num $v[$i,$col['달러']] }); Krw = (Num $v[$i,$col['원화']]); Where = "$($s.Name)!R$($u.Row + $i - 1)"; Split = $sp }
+      $bl0 = Num $v[$i,$blC]; if (-not $bl0 -and "$($v[$i,$blC])".Trim() -match '^(\d{1,2})\s*월\s*(\d{1,2})\s*일$') { $bl0 = (New-Object DateTime $yy, ([int]$matches[1]), ([int]$matches[2])).ToOADate() }   # 글자로 적힌 날짜 '04월 07일' (4월라인 SAM, 2026-11-25)
+      $line[$inv] = [pscustomobject]@{ Bl = $bl0; Rate = $(if ($col['환율']) { Num $v[$i,$col['환율']] }); Usd = $(if ($col['달러']) { Num $v[$i,$col['달러']] }); Krw = (Num $v[$i,$col['원화']]); Where = "$($s.Name)!R$($u.Row + $i - 1)"; Split = $sp }
     }
   }
   $wb.Close($false)
@@ -181,7 +182,8 @@ try {
     if ($inv -match '^DSM\s*\d{4}-AT\d') { $accAtlas += $a }   # Atlas 원화 거래 합계용 (같은 번호가 두 줄이어도 모두 더함)
     if ($a.Mj -match '^\d{5}-\d{2}-\d{6}X$') {
       $c = [int]$sa.Range("D$($a.R)").DisplayFormat.Interior.Color; $rr = $c -band 255; $gg = ($c -shr 8) -band 255; $bb = ($c -shr 16) -band 255
-      $a.Gray = ($rr -eq $gg -and $gg -eq $bb -and $rr -lt 230); $a.Green = ($c -eq 10213316); $accList += $a
+      # 이월 = 면장번호 칸 회색, 또는 원화가 J열(당월) 없이 K열(이월)에만 있음 (2026-11-25: 5월 2605P05·8월 DSM2608-21은 회색 없이 K열만 → 마감 파일 '이월_면장' 시트에 있음)
+      $a.Gray = ($rr -eq $gg -and $gg -eq $bb -and $rr -lt 230) -or ([bool](Num $v[$i,11]) -and -not (Num $v[$i,10])); $a.Green = ($c -eq 10213316); $accList += $a
     }
     if (-not $acc.ContainsKey($inv)) { $acc[$inv] = $a }
   }
@@ -431,7 +433,8 @@ try {
       else { $why += "BL날짜 다름: 기초자료 $(DS $src.Bl) / 회계 $(DS $a.Bl) → 매출 달이 달라짐($([DateTime]::FromOADate($src.Bl).Month)월 / $([DateTime]::FromOADate($a.Bl).Month)월). 어느 달 매출인지 확인해 주세요" }
     }
     if ($a -and $a.Bl -ge $nextOA -and -not $src) { $why += "회계 BL일 $(DS $a.Bl) → $nLab 이월 건($($lineName)은 당월 BL분만 있음)" }
-    $carry = $a -and $a.Bl -ge $nextOA -and -not $src   # 회계 BL일이 다음 달 1일 이후 = 다음 달 이월 → 날짜 대신 '이월', 회색
+    elseif ($a -and $a.Gray -and -not $src) { $why += "회계에서 이월로 표시(원화가 이월 칸에 있음) → $nLab 이월 건($($lineName)은 당월 BL분만 있음)" }   # 2026-11-25
+    $carry = $a -and ($a.Bl -ge $nextOA -or $a.Gray) -and -not $src   # 회계 BL일이 다음 달 1일 이후 또는 회계 이월 표시 = 다음 달 이월 → 날짜 대신 '이월', 회색
     if ($carry) { $ws.Cells($r,$cBl).NumberFormat = "@"; $ws.Cells($r,$cBl).Value2 = '이월'; $ws.Cells($r,$cBl).Interior.Color = 15921906; $cnt.Carry++
       $blRows += ,@($r, $cust, $lot, $a.Bl, $lineName, $null, (($why -join ' / ') + $al)) }
     elseif ($why) { if (-not $blSame) { $ws.Cells($r,$cBl).Interior.Color = $RED; $cnt.Red++ }
@@ -439,7 +442,7 @@ try {
     # 인보이스 번호
     if ($src) { $ws.Cells($r,$cInv).NumberFormat = "@"; $ws.Cells($r,$cInv).Value2 = [string]$src.Inv }
     $why2 = @(); if (-not $src) { $why2 += "$($lineName)에 인보이스 없음" }; if (-not $a) { $why2 += "회계에 인보이스 없음(기준 없음)" }
-    if ($a -and $a.Bl -ge $nextOA -and -not $src) { $why2 += "$nLab 이월 건" }
+    if ($a -and ($a.Bl -ge $nextOA -or $a.Gray) -and -not $src) { $why2 += "$nLab 이월 건" }
     if ($why2) { $ws.Cells($r,$cInv).Interior.Color = $RED; $cnt.InvRed++
       $invRows += ,@($r, $cust, $lot, $(if ($a) { $a.Inv }), $(if ($src) { $src.Name } else { $lineName }), $(if ($src) { $src.Inv } else { '없음' }), (($why2 -join ' / ') + $al)) }
     if (-not $grp.Contains($lot)) { $grp[$lot] = [pscustomobject]@{ Src = $src; Acc = $a; Cust = $cust; Rows = New-Object System.Collections.ArrayList } }
@@ -453,7 +456,7 @@ try {
     $jpy = [bool]$pdf[$lot]; $fmtR = if ($jpy) { "0.0000" } else { "#,##0.00" }
     $krwOnly = $src -and -not $src.Rate -and -not $src.Fc   # Bergen·Atlas: 9월라인 원화 거래
     $why = @()
-    if (-not $src) { $why += "$($lineName)에 인보이스 없음 → 기초자료 환율·달러 없음"; if ($a -and $a.Bl -ge $nextOA) { $why += "$nLab 이월 건" } }
+    if (-not $src) { $why += "$($lineName)에 인보이스 없음 → 기초자료 환율·달러 없음"; if ($a -and ($a.Bl -ge $nextOA -or $a.Gray)) { $why += "$nLab 이월 건" } }
     elseif ($krwOnly) { }
     else {
       foreach ($r in $rows) { $ws.Cells($r,$cFx).Value2 = [double]$src.Rate; $ws.Cells($r,$cFx).NumberFormat = $fmtR }
@@ -550,11 +553,13 @@ try {
     # 툴링비: 회계는 'DSM2610-24(툴링비)', 라인 파일은 'DSM2610-24' → 뒤 '(툴링비)' 빼고 찾음. 툴링비는 MES 출고가 없는 것이 정상 (2026-11-12, 10월)
     $isTool = $t.Inv -match '툴링'
     if (-not $l -and $t.Inv -match '^(.+?)\s*\(') { $l = $line[$matches[1].Trim()] }   # 'DSM2610-24(툴링비)', 'DSM2602-18 (항공)' → 괄호 앞 번호로 라인 파일 찾음
+    # 2026-11-25: 라인 파일 '툴링비+PPAP' 시트에 있는 인보이스(3월 AL1TA·6월 AL5TA = 마감 파일 '툴링비', 6월 T01 = '머큐리 PPAP 샘플')와 인보이스에 'PPAP'가 붙은 건 → 툴링비·샘플이라 MES 출고 없음이 정상
+    if (-not $isTool -and (($l -and "$($l.Where)" -match '툴링|PPAP') -or $t.Inv -match 'PPAP')) { $isTool = $true }
     # (2026-11-24) 'TA' 인보이스를 관세로 봤다가 취소: 6월 MES에 TA 번호로 실제 HOUSING CENTER 출고가 있고 회계에 면장번호도 있음 → 일반 인보이스와 같게 처리
     $isTA = $false
     # 인보이스 번호의 연월이 마감월보다 앞(전월 출고분)인데 회계에 녹색 표시만 없는 경우 → 사용자 확인 방식(7월 DSM2606-JS02)대로 전월 출고분으로 봄 (2026-11-24)
     $prevInv = $false; if ($t.Inv -match '^(?:DSM\s*)?(\d{2})(\d{2})' -and [int]$matches[2] -ge 1 -and [int]$matches[2] -le 12) { $prevInv = ([int]$matches[1] * 100 + [int]$matches[2]) -lt ([int]$yy2 * 100 + $mm) }
-    $noMes = if ($isTool) { "툴링비라 MES 출고 없음(정상)" } elseif ($isTA) { "관세 청구(TA)라 MES 출고 없음(정상)" } elseif ($t.Green) { "MES $mLab 출고에 없음(전월 출고분)" } elseif ($prevInv) { "MES $mLab 출고에 없음 → 인보이스 번호가 전월 이전 번호라 전월 출고분으로 봄(회계 녹색 표시만 없음, 참고)" } else { "MES $mLab 출고에 없음 → 회계는 이번 달 출하(녹색 아님)라 MES 출고 입력이 빠졌는지 확인해 주세요" }   # 2026-11-12
+    $noMes = if ($isTool) { $(if ($t.Inv -match '툴링') { "툴링비라 MES 출고 없음(정상)" } else { "라인 파일 '툴링비+PPAP' 건(툴링비·PPAP 샘플)이라 MES 출고 없음(정상)" }) } elseif ($isTA) { "관세 청구(TA)라 MES 출고 없음(정상)" } elseif ($t.Green) { "MES $mLab 출고에 없음(전월 출고분)" } elseif ($prevInv) { "MES $mLab 출고에 없음 → 인보이스 번호가 전월 이전 번호라 전월 출고분으로 봄(회계 녹색 표시만 없음, 참고)" } else { "MES $mLab 출고에 없음 → 회계는 이번 달 출하(녹색 아님)라 MES 출고 입력이 빠졌는지 확인해 주세요" }   # 2026-11-12
     if ($p -and -not $p.FromAcc) {
       $cmp = [pscustomobject]@{ N = $p.File; Bl = $p.BlN; Rate = $p.Rate; Fc = $p.Fc; Krw = $p.Krw; Mj = $p.Mj }
       $k0 = 13; foreach ($k in $cats) { $vv = [double]$p.Split[$k]; if ($vv) { $gs.Cells($row, $k0).Value2 = $vv }; $k0++ }
