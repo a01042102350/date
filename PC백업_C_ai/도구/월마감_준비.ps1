@@ -238,6 +238,9 @@ try {
   $ws.Cells(1, $lastC).Copy($ws.Range($ws.Cells(1, $lastC + 1), $ws.Cells(1, $lastC + 6))) | Out-Null
   for ($q = 0; $q -lt 6; $q++) { $ws.Cells(1, $lastC + 1 + $q).Value2 = [string]$cats[$q] }
   $HM = HdrMap; $ncA = $lastC + 6
+  # MES 출고Lot에 숫자가 AL 앞에 온 번호('DSM2608-1AL') → MES 칸을 'DSM2608-AL01'로 고침 (사용자 지시 2026-11-25: 매번 AL01로)
+  if ($HM['출고Lot']) { $cL0 = $HM['출고Lot']; $lv0 = $ws.Range($ws.Cells(1,$cL0), $ws.Cells($lastD,$cL0)).Value2
+    for ($r = 2; $r -le $lastD; $r++) { $o0 = "$($lv0[$r,1])".Trim(); if ($o0 -match '^DSM(\d{4})-(\d{1,2})AL$') { $nw0 = 'DSM{0}-AL{1:00}' -f $matches[1], [int]$matches[2]; $ws.Cells($r,$cL0).NumberFormat = '@'; $ws.Cells($r,$cL0).Value2 = $nw0; "MES 출고Lot 고침: '$o0' → '$nw0' ($r행)" } } }
   $v = $ws.Range($ws.Cells(1,1), $ws.Cells($lastD, $ncA)).Value2
 
   # ── 행 나누기·6칸 (MES 기준)
