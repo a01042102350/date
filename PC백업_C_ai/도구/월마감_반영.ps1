@@ -22,6 +22,35 @@ function Num($x) { $d = 0.0; if ([double]::TryParse("$x", [ref]$d)) { $d } else 
 function K($x) { "$x".Trim() }
 function DS($n) { if ($n) { [DateTime]::FromOADate($n).ToString('yyyy-MM-dd') } else { '없음' } }
 function NZ0($x) { ((("$x" -replace '[^A-Za-z0-9]', '').ToUpper()) -replace '(?<=[A-Z])0+(?=\d)', '') }
+# BL날짜 차이 (2026-11-25 사용자: 라인 파일과 회계 BL날짜가 같은 달 안에서만 다르면 에러 아님 → 참고. 달이 바뀌면 매출 달이 달라지므로 에러로 남김)
+function Get-BlDiff($b1, $b2) {
+  if (-not $b1 -or -not $b2 -or [math]::Floor($b1) -eq [math]::Floor($b2)) { return $null }
+  $d1 = [DateTime]::FromOADate($b1); $d2 = [DateTime]::FromOADate($b2)
+  if ($d1.Year -eq $d2.Year -and $d1.Month -eq $d2.Month) { 'same' } else { 'month' }
+}
+# 서울외국환중개 매매기준율 (월마감_준비.ps1과 같은 방식: CSV에 없으면 smbs.biz, 휴일 = 앞 영업일)
+$fxCsv = 'C:\ai\매월마감\도구\서울외국환중개_환율.csv'; $fx = @{}
+if (Test-Path $fxCsv) { foreach ($r0 in @(Import-Csv $fxCsv -Encoding UTF8)) { $p0 = @($r0.PSObject.Properties); $fx["$($p0[0].Value)".Trim()] = @{ USD = (Num $r0.USD); JPY = (Num $r0.JPY) } } }
+function Get-Fx($oa, $cur) {
+  $d = [DateTime]::FromOADate($oa)
+  for ($k = 0; $k -le 10; $k++) {
+    $dk = $d.AddDays(-$k); $key = $dk.ToString('yyyy-MM-dd')
+    if (-not $fx.ContainsKey($key) -and $dk -le (Get-Date)) {
+      try { [Net.ServicePointManager]::SecurityProtocol = 'Tls12'
+        $t = (Invoke-WebRequest "http://www.smbs.biz/Flash/TodayExRate_flash.jsp?tr_date=$key" -UseBasicParsing -TimeoutSec 20).Content
+        $fx[$key] = @{ USD = $(if ($t -match 'USD=([\d,\.]+)') { [double]($matches[1] -replace ',', '') } else { $null }); JPY = $(if ($t -match 'JPY=([\d,\.]+)') { [double]($matches[1] -replace ',', '') / 100 } else { $null }) }
+      } catch { $fx[$key] = @{ USD = $null; JPY = $null } }
+    }
+    if ($fx.ContainsKey($key) -and $fx[$key][$cur]) { return [pscustomobject]@{ Rate = [double]$fx[$key][$cur]; Date = $key } }
+  }
+  $null
+}
+# 환율이 그 BL날짜의 매매기준율과 같은지 → 라인 파일·회계 환율이 서로 다른 게 BL날짜 차이 때문인지 판단
+function Test-RateOnDate($rate, $bl) {
+  if (-not $rate -or -not $bl) { return $false }
+  $cu = if ($rate -lt 50) { 'JPY' } else { 'USD' }; $tol = if ($cu -eq 'JPY') { 0.0005 } else { 0.05 }
+  $g = Get-Fx $bl $cu; [bool]($g -and [math]::Abs($g.Rate - $rate) -lt $tol)
+}
 $RED = 255; $PINK = 13421823; $HEAD = 14277081
 
 if (-not (Test-Path $backup)) { Copy-Item $mesPath $backup }
@@ -109,6 +138,8 @@ try {
     for ($i = 1; $i -le [Math]::Min($nr, 25) -and -not $hr; $i++) { for ($j = 1; $j -le $nc; $j++) { if ("$($v[$i,$j])".Trim() -eq '인보이스') { $hr = $i } } }
     if (-not $hr) { continue }
     for ($j = 1; $j -le $nc; $j++) { $h = "$($v[$hr,$j])".Trim(); $h2 = $h -replace '\s', ''; if ($h -and -not $col.ContainsKey($h)) { $col[$h] = $j }; if ($h2 -and -not $col.ContainsKey($h2)) { $col[$h2] = $j } }
+    # 1~4월 라인 파일 옛 머리글 '가공(1공장)·가공(2공장)·가공(3공장)' = 같은 자리의 '가공1(2공장)·가공2(5공장)·가공3(3공장)' (2026-11-25)
+    foreach ($pr in @(@('가공1(2공장)', '가공(1공장)'), @('가공2(5공장)', '가공(2공장)'), @('가공3(3공장)', '가공(3공장)'))) { if (-not $col[$pr[0]] -and $col[$pr[1]]) { $col[$pr[0]] = $col[$pr[1]] } }
     $blC = if ($col['bl날짜']) { $col['bl날짜'] } else { $col['전자세금계산서발행일'] }
     for ($i = $hr + 1; $i -le $nr; $i++) {
       $inv = K $v[$i,$col['인보이스']]; if (-not $inv -or $line.ContainsKey($inv)) { continue }
@@ -391,15 +422,19 @@ try {
     $al = if ($alias[$r]) { " / MES 출고Lot 오기: '$($alias[$r])' → '$lot'로 인식" } else { '' }
     # BL날짜
     if ($src -and $src.Bl) { $ws.Cells($r,$cBl).Value2 = [double]$src.Bl; $ws.Cells($r,$cBl).NumberFormat = "yyyy-mm-dd" }
-    $why = @()
+    $why = @(); $blSame = $false
     if (-not $src) { $why += "$($lineName)에 인보이스 없음" } elseif (-not $src.Bl) { $why += "$($src.Name)에 BL날짜 없음" + $(if ($cust -match 'bergen' -and $a -and $a.Bl) { " → Bergen은 원화 고정 거래라 회계 BL날짜·환율을 그대로 씀 (참고)" } else { '' }) }
     if (-not $a) { $why += "회계에 인보이스 없음(기준 없음)" }
-    elseif ($src -and $src.Bl -and $a.Bl -and [math]::Floor($src.Bl) -ne [math]::Floor($a.Bl)) { $why += "BL날짜 다름: 기초자료 $(DS $src.Bl) / 회계 $(DS $a.Bl)" }
+    elseif ($src -and $src.Bl -and $a.Bl -and [math]::Floor($src.Bl) -ne [math]::Floor($a.Bl)) {
+      # 2026-11-25 사용자: 같은 달 안에서 날짜만 다른 건 에러 아님(참고, 빨간색 안 칠함). 달이 바뀌면 매출 달이 달라지므로 에러
+      if ((Get-BlDiff $src.Bl $a.Bl) -eq 'same') { $why += "BL날짜 다름: 기초자료 $(DS $src.Bl) / 회계 $(DS $a.Bl) → 같은 달 안에서 날짜만 달라 매출 달은 같음 (참고)"; $blSame = $true }
+      else { $why += "BL날짜 다름: 기초자료 $(DS $src.Bl) / 회계 $(DS $a.Bl) → 매출 달이 달라짐($([DateTime]::FromOADate($src.Bl).Month)월 / $([DateTime]::FromOADate($a.Bl).Month)월). 어느 달 매출인지 확인해 주세요" }
+    }
     if ($a -and $a.Bl -ge $nextOA -and -not $src) { $why += "회계 BL일 $(DS $a.Bl) → $nLab 이월 건($($lineName)은 당월 BL분만 있음)" }
     $carry = $a -and $a.Bl -ge $nextOA -and -not $src   # 회계 BL일이 다음 달 1일 이후 = 다음 달 이월 → 날짜 대신 '이월', 회색
     if ($carry) { $ws.Cells($r,$cBl).NumberFormat = "@"; $ws.Cells($r,$cBl).Value2 = '이월'; $ws.Cells($r,$cBl).Interior.Color = 15921906; $cnt.Carry++
       $blRows += ,@($r, $cust, $lot, $a.Bl, $lineName, $null, (($why -join ' / ') + $al)) }
-    elseif ($why) { $ws.Cells($r,$cBl).Interior.Color = $RED; $cnt.Red++
+    elseif ($why) { if (-not $blSame) { $ws.Cells($r,$cBl).Interior.Color = $RED; $cnt.Red++ }
       $blRows += ,@($r, $cust, $lot, $(if ($a) { $a.Bl }), $(if ($src) { $src.Name } else { $lineName }), $(if ($src) { $src.Bl }), (($why -join ' / ') + $al)) }
     # 인보이스 번호
     if ($src) { $ws.Cells($r,$cInv).NumberFormat = "@"; $ws.Cells($r,$cInv).Value2 = [string]$src.Inv }
@@ -431,9 +466,15 @@ try {
       }
       if (-not $a) { $why += "회계에 인보이스 없음(기준 없음)" }
       else {
-        if (-not $a.Rate -or [math]::Abs($a.Rate - $src.Rate) -ge 0.00005) { $why += "환율 다름: 기초자료 $($src.Rate) / 회계 $($a.Rate)"; foreach ($r in $rows) { $ws.Cells($r,$cFx).Interior.Color = $RED } }
+        $rateNote = $null
+        if (-not $a.Rate -or [math]::Abs($a.Rate - $src.Rate) -ge 0.00005) {
+          # 2026-11-25: 같은 달 안 BL날짜 차이 + 라인·회계 환율이 각자 BL날짜 매매기준율과 같음 → 날짜 차이 때문이라 에러 아님
+          if ($a.Rate -and (Get-BlDiff $src.Bl $a.Bl) -eq 'same' -and (Test-RateOnDate $src.Rate $src.Bl) -and (Test-RateOnDate $a.Rate $a.Bl)) { $rateNote = "환율 다름: 기초자료 $($src.Rate) / 회계 $($a.Rate) → BL날짜가 달라 생긴 차이(둘 다 각자 BL날짜 환율이 맞음)" }
+          else { $why += "환율 다름: 기초자료 $($src.Rate) / 회계 $($a.Rate)"; foreach ($r in $rows) { $ws.Cells($r,$cFx).Interior.Color = $RED } }
+        }
         # Bergen = 원화 거래, 라인 파일에 외화 없음 → 외화 비교 안 함 (2026-11-24)
         if ((-not $a.Fc -or [math]::Abs($a.Fc - $src.Fc) -gt 0.01) -and -not ("$($a.Cust)" -match 'BERGEN' -and -not $src.Fc)) { $why += "외화금액 다름: 기초자료 {0:N2} / 회계 {1:N2}" -f $src.Fc, $a.Fc; foreach ($r in $rows) { $ws.Cells($r,$cUsd).Interior.Color = $RED } }
+        if ($rateNote) { $why += $(if ($why) { $rateNote } else { "$rateNote (참고)" }) }   # 다른 문제가 같이 있으면 '참고'를 붙이지 않음(에러가 참고로 묻히지 않게)
       }
     }
     if (-not $src) { foreach ($r in $rows) { $ws.Cells($r,$cFx).Interior.Color = $RED; $ws.Cells($r,$cUsd).Interior.Color = $RED } }
@@ -536,9 +577,15 @@ try {
     if (-not $cmp -and $isTA) { $note += "$($lineName)는 관세를 합계로만 적어 인보이스별 비교 안 함(참고)" }
     elseif (-not $cmp) { $note += "$($lineName)에 인보이스 없음(비교 불가)" }
     else {
-      if ($cmp.Bl -and $t.Bl -and [math]::Floor($cmp.Bl) -ne [math]::Floor($t.Bl)) { $gs.Cells($row, 3).Interior.Color = $RED; $note += "BL날짜: $($cmp.N) $(DS $cmp.Bl) ≠ 회계 $(DS $t.Bl)" }
+      # 2026-11-25 사용자: 같은 달 안 BL날짜 차이는 에러 아님 → '≠' 없이 적어 에러 목록에 안 올림(빨간색도 안 칠함). 달이 바뀌면 에러
+      $bd = Get-BlDiff $cmp.Bl $t.Bl
+      if ($bd -eq 'same') { $note += "BL날짜: $($cmp.N) $(DS $cmp.Bl) / 회계 $(DS $t.Bl) (같은 달 안 날짜 차이)" }
+      elseif ($bd) { $gs.Cells($row, 3).Interior.Color = $RED; $note += "BL날짜: $($cmp.N) $(DS $cmp.Bl) ≠ 회계 $(DS $t.Bl) → 매출 달이 달라짐, 어느 달 매출인지 확인" }
       if ($cmp.Mj -and $cmp.Mj -ne $t.Mj) { $gs.Cells($row, 1).Interior.Color = $RED; $note += "면장번호: $($cmp.N) $($cmp.Mj) ≠ 회계 $($t.Mj)" }
-      if ($cmp.Rate -and (-not $t.Rate -or [math]::Abs($cmp.Rate - $t.Rate) -ge 0.00005)) { $gs.Cells($row, 7).Interior.Color = $RED; $note += "환율: $($cmp.N) $($cmp.Rate) ≠ 회계 $($t.Rate)" }
+      if ($cmp.Rate -and (-not $t.Rate -or [math]::Abs($cmp.Rate - $t.Rate) -ge 0.00005)) {
+        if ($t.Rate -and $bd -eq 'same' -and (Test-RateOnDate $cmp.Rate $cmp.Bl) -and (Test-RateOnDate $t.Rate $t.Bl)) { $note += "환율: $($cmp.N) $($cmp.Rate) / 회계 $($t.Rate) (BL날짜가 달라 생긴 차이)" }
+        else { $gs.Cells($row, 7).Interior.Color = $RED; $note += "환율: $($cmp.N) $($cmp.Rate) ≠ 회계 $($t.Rate)" }
+      }
       if ($cmp.Fc -and (-not $t.Fc -or [math]::Abs($cmp.Fc - $t.Fc) -gt 0.01)) { $gs.Cells($row, 8).Interior.Color = $RED; $note += "외화: {0} {1:N2} ≠ 회계 {2:N2}" -f $cmp.N, $cmp.Fc, $t.Fc }
       if ($cmp.Krw -and (-not $t.Krw -or [math]::Abs($cmp.Krw - $t.Krw) -gt 0.5)) { $gs.Cells($row, 9).Interior.Color = $RED; $note += "원화 금액 다름: {0} 합계 {1:N0}원 / 회계 {2:N0}원 → {3:N0}원 {4}{5}" -f $cmp.N, $cmp.Krw, $t.Krw, [math]::Abs($cmp.Krw - $t.Krw), $(if ($cmp.Krw -lt $t.Krw) { '적음' } else { '많음' }), $(if ($p) { $al0 = @($skAlert | ? { $_.Inv -eq $t.Inv })[0]; if ($al0) { ". 매출내역서 엑셀 엔화가 {0:N2}엔(소수점)이라 원화가 달라짐. 회계 {1:N0}엔이 맞음 → 이번 달에도 국내팀 엑셀 엔화 소수점을 확인해 주세요 (알림)" -f $al0.Raw, $t.Fc } else { ". 회계(엔화×환율)가 맞음 → 매출내역서 항목별 금액(사형·금형·가공·스크랩) 확인 필요" } } else { '' }) }
     }

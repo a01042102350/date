@@ -79,6 +79,8 @@ try {
     for ($i = 1; $i -le [math]::Min($nr, 25) -and -not $hr; $i++) { for ($j = 1; $j -le $ncx; $j++) { if ("$($vv[$i,$j])".Trim() -eq '인보이스') { $hr = $i } } }
     if (-not $hr) { continue }
     for ($j = 1; $j -le $ncx; $j++) { $h = ("$($vv[$hr,$j])" -replace '\s', ''); if ($h -and -not $col.ContainsKey($h)) { $col[$h] = $j } }
+    # 1~4월 라인 파일 옛 머리글 '가공(1공장)·가공(2공장)·가공(3공장)' = 같은 자리의 '가공1(2공장)·가공2(5공장)·가공3(3공장)' (2026-11-25, 1월 MC02 가공(2공장) 26.9% = MES 가공2 26.9%로 확인)
+    foreach ($pr in @(@('가공1(2공장)', '가공(1공장)'), @('가공2(5공장)', '가공(2공장)'), @('가공3(3공장)', '가공(3공장)'))) { if (-not $col[$pr[0]] -and $col[$pr[1]]) { $col[$pr[0]] = $col[$pr[1]] } }
     $blC = if ($col['bl날짜']) { $col['bl날짜'] } else { $col['전자세금계산서발행일'] }
     for ($i = $hr + 1; $i -le $nr; $i++) {
       $inv = K $vv[$i,$col['인보이스']]; if (-not $inv -or $line.ContainsKey($inv)) { continue }
@@ -291,7 +293,14 @@ try {
       else {
         $rate = $g0.Rate
         if ($blFrom -eq 'acc') { $rRed = $true; $rw += "BL날짜 미확정(BL불일치사유 시트 참고) → 회계 BL날짜 $(DS $blU) 기준 smbs 환율 적용" }
-        if ($a -and $a.Rate -and [math]::Abs($a.Rate - $rate) -ge 0.00005) { $rRed = $true; $rw += "서울외국환중개 매매기준율 $rate (BL $(DS $blU)) ≠ 회계 환율 $($a.Rate) → 회계 환율을 확인해 주세요 (알림)" }
+        if ($a -and $a.Rate -and [math]::Abs($a.Rate - $rate) -ge 0.00005) {
+          # 2026-11-25 사용자: 라인 파일·회계 BL날짜가 같은 달 안에서만 다르면 에러 아님 → 회계 환율이 회계 BL날짜 매매기준율과 같으면 날짜 차이 때문(참고, 빨간색 안 칠함)
+          $sameM = $false; $g1 = $null
+          if ($blFrom -eq 'src' -and $a.Bl -and [math]::Floor($a.Bl) -ne [math]::Floor($blU)) { $d1 = [DateTime]::FromOADate($blU); $d2 = [DateTime]::FromOADate($a.Bl); $sameM = $d1.Year -eq $d2.Year -and $d1.Month -eq $d2.Month }
+          if ($sameM) { $g1 = Get-Fx $a.Bl $cur }
+          if ($sameM -and $g1 -and [math]::Abs($g1.Rate - $a.Rate) -lt $(if ($cur -eq 'JPY') { 0.0005 } else { 0.05 })) { $rw += "서울외국환중개 매매기준율 $rate (라인 BL $(DS $blU)) / 회계 환율 $($a.Rate) (회계 BL $(DS $a.Bl)) → BL날짜가 같은 달 안에서 달라 생긴 차이, 회계 환율은 회계 BL날짜 환율과 같음 (참고)" }
+          else { $rRed = $true; $rw += "서울외국환중개 매매기준율 $rate (BL $(DS $blU)) ≠ 회계 환율 $($a.Rate) → 회계 환율을 확인해 주세요 (알림)" }
+        }
       }
     }
     foreach ($r in $rows) {
