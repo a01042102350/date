@@ -73,6 +73,16 @@ $readme = @(
   @('불량대체','국내 MES 금액이 비어 있는 행 = 불량 대체품(국내 영업팀 확인). 정상이라 에러 아님 → mes 시트 전자세금계산서 금액 칸에 "불량대체". 일별마감 금액 칸에 "불량대체"라고 적힌 줄도 매출 아님(금액은 비고에 적힘)'),
   @('MES 금액','MES는 내부 고정환율(약 1,350원/USD) 기준이라 BL일 환율로 나눈 달러와 0.4~2.5% 차이는 정상(참고)'))
 
+# 엑셀을 닫을 때 오류로 꺼지면 윈도우가 '복원 모드'로 다시 켜서 파일을 읽기 전용으로 띄움 → 통합문서를 닫은 뒤 이 도구가 띄운 엑셀(PID)만 바로 끔 (2026-11-25)
+if (-not ('XlPidNs.XlPid' -as [type])) { Add-Type -Namespace XlPidNs -Name XlPid -MemberDefinition '[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);' }
+function Close-MyExcel($app) {
+  if (-not $app) { return }
+  [uint32]$xp = 0; try { [void][XlPidNs.XlPid]::GetWindowThreadProcessId([IntPtr]$app.Hwnd, [ref]$xp) } catch {}
+  try { foreach ($w0 in @($app.Workbooks)) { if ($w0) { $w0.Close($false) } } } catch {}
+  try { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($app) } catch {}
+  [GC]::Collect(); [GC]::WaitForPendingFinalizers()
+  if ($xp) { $pr = Get-Process -Id $xp -ErrorAction SilentlyContinue; if ($pr -and $pr.ProcessName -eq 'EXCEL' -and $pr.MainWindowHandle -eq 0) { Stop-Process -Id $xp -Force -ErrorAction SilentlyContinue } }
+}
 $xl = New-Object -ComObject Excel.Application; $xl.Visible = $false; $xl.DisplayAlerts = $false
 # 종류별 보기 체크박스: 줄 내용으로 종류를 붙임 (불량대체·이월 등)
 $tagDefs = @(@('이월', '이월'), @('불량대체', '불량대체'), @('반품·불량', '반품·불량|반품'), @('단가 소급', '소급'), @('전월 출하', '전월 출하'), @('수정세금계산서', '수정세금계산서'), @('출하기준 금액변동', '출하기준 금액변동'))
@@ -132,7 +142,7 @@ try {
     if ($s.Key -eq 'sum') { $ci = [array]::IndexOf($hd, '원화금액(회계)') + 1; $stats['krw'] = [double]$v[$nr,$ci] }
   }
   $wb.Close($false)
-} finally { $xl.Quit(); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($xl); $xl = $null; [GC]::Collect(); [GC]::WaitForPendingFinalizers() }   # 엑셀이 끝난 뒤에도 남아 작업 표시줄에 뜨던 것 방지 (2026-11-25)
+} finally { Close-MyExcel $xl; $xl = $null }   # 엑셀 오류 종료·복원 창 방지 (2026-11-25)
 
 $gptPrompt = "이 페이지의 'README'를 먼저 읽고, 'MES 출고 데이터'의 빨간 칸(st-bad)과 '오류목록'의 분류 열을 기준으로 분석해줘. 비교 기준은 회계 파일이고, 신코·코마츠 행의 기초자료달러는 엔화 금액이야. '이월매출'(10월로 넘어가는 건)과 '참고'는 정상이니 '에러'만 정리해줘."
 foreach ($s0 in $sheets) { $s0.Desc = MT $s0.Desc }; $readme = @($readme | % { ,@($_[0], (MT $_[1])) }); $gptPrompt = MT $gptPrompt

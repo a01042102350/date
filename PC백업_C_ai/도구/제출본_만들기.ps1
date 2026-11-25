@@ -13,6 +13,16 @@ if (-not $MonthLabel) { $MonthLabel = "$([math]::Floor($YM / 100))년$($YM % 100
 $GRAY = 15921906; $YEL = 10284031; $RED = 255
 $out = Join-Path $Dir "제출본"; New-Item -ItemType Directory -Force $out | Out-Null
 $xlsOut = Join-Path $out ($Mes -replace '\.xls$', '_제출본.xls'); Copy-Item (Join-Path $Dir $Mes) $xlsOut -Force
+# 엑셀을 닫을 때 오류로 꺼지면 윈도우가 '복원 모드'로 다시 켜서 파일을 읽기 전용으로 띄움 → 통합문서를 닫은 뒤 이 도구가 띄운 엑셀(PID)만 바로 끔 (2026-11-25)
+if (-not ('XlPidNs.XlPid' -as [type])) { Add-Type -Namespace XlPidNs -Name XlPid -MemberDefinition '[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);' }
+function Close-MyExcel($app) {
+  if (-not $app) { return }
+  [uint32]$xp = 0; try { [void][XlPidNs.XlPid]::GetWindowThreadProcessId([IntPtr]$app.Hwnd, [ref]$xp) } catch {}
+  try { foreach ($w0 in @($app.Workbooks)) { if ($w0) { $w0.Close($false) } } } catch {}
+  try { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($app) } catch {}
+  [GC]::Collect(); [GC]::WaitForPendingFinalizers()
+  if ($xp) { $pr = Get-Process -Id $xp -ErrorAction SilentlyContinue; if ($pr -and $pr.ProcessName -eq 'EXCEL' -and $pr.MainWindowHandle -eq 0) { Stop-Process -Id $xp -Force -ErrorAction SilentlyContinue } }
+}
 $xl = New-Object -ComObject Excel.Application; $xl.Visible = $false; $xl.DisplayAlerts = $false
 try {
   $wb = $xl.Workbooks.Open($xlsOut); if ($wb.ReadOnly) { throw "제출본이 읽기 전용으로 열림" }
@@ -42,7 +52,7 @@ try {
   "오류목록: 다음 달 세금계산서 참고 $($del)줄 삭제"
   $wb.Worksheets.Item(1).Activate() | Out-Null
   $xl.Calculation = -4105; $xl.ScreenUpdating = $true; $wb.Save(); $wb.Close($false)
-} finally { $xl.Quit(); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($xl); $xl = $null; [GC]::Collect(); [GC]::WaitForPendingFinalizers() }   # 엑셀이 끝난 뒤에도 남아 작업 표시줄에 뜨던 것 방지 (2026-11-25)
+} finally { Close-MyExcel $xl; $xl = $null }   # 엑셀 오류 종료·복원 창 방지 (2026-11-25)
 # HTML
 $htmlOut = Join-Path $out "$($MonthLabel)_매출마감_결과.html"
 & "C:\ai\도구\월마감_HTML.ps1" -YM $YM -XlsPath $xlsOut -Out $htmlOut | Out-Null
