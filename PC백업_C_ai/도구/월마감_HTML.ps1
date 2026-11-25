@@ -132,7 +132,7 @@ try {
     if ($s.Key -eq 'sum') { $ci = [array]::IndexOf($hd, '원화금액(회계)') + 1; $stats['krw'] = [double]$v[$nr,$ci] }
   }
   $wb.Close($false)
-} finally { $xl.Quit() }
+} finally { $xl.Quit(); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($xl); $xl = $null; [GC]::Collect(); [GC]::WaitForPendingFinalizers() }   # 엑셀이 끝난 뒤에도 남아 작업 표시줄에 뜨던 것 방지 (2026-11-25)
 
 $gptPrompt = "이 페이지의 'README'를 먼저 읽고, 'MES 출고 데이터'의 빨간 칸(st-bad)과 '오류목록'의 분류 열을 기준으로 분석해줘. 비교 기준은 회계 파일이고, 신코·코마츠 행의 기초자료달러는 엔화 금액이야. '이월매출'(10월로 넘어가는 건)과 '참고'는 정상이니 '에러'만 정리해줘."
 foreach ($s0 in $sheets) { $s0.Desc = MT $s0.Desc }; $readme = @($readme | % { ,@($_[0], (MT $_[1])) }); $gptPrompt = MT $gptPrompt

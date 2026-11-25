@@ -42,7 +42,7 @@ try {
   "오류목록: 다음 달 세금계산서 참고 $($del)줄 삭제"
   $wb.Worksheets.Item(1).Activate() | Out-Null
   $xl.Calculation = -4105; $xl.ScreenUpdating = $true; $wb.Save(); $wb.Close($false)
-} finally { $xl.Quit() }
+} finally { $xl.Quit(); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($xl); $xl = $null; [GC]::Collect(); [GC]::WaitForPendingFinalizers() }   # 엑셀이 끝난 뒤에도 남아 작업 표시줄에 뜨던 것 방지 (2026-11-25)
 # HTML
 $htmlOut = Join-Path $out "$($MonthLabel)_매출마감_결과.html"
 & "C:\ai\도구\월마감_HTML.ps1" -YM $YM -XlsPath $xlsOut -Out $htmlOut | Out-Null

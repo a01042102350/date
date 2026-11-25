@@ -436,5 +436,5 @@ try {
   "다음: & `"C:\ai\도구\월마감_반영.ps1`" -YM $YM"
 } finally {
   if ($wb) { try { $wb.Close($false) } catch {} }
-  $xl.Quit(); [void][Runtime.InteropServices.Marshal]::ReleaseComObject($xl)
+  $xl.Quit(); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($xl); $xl = $null; [GC]::Collect(); [GC]::WaitForPendingFinalizers()   # 엑셀 완전히 끄기 (2026-11-25)
 }

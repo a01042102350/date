@@ -35,7 +35,7 @@ try {
   $byC.Keys | % { "  $_ $($byC[$_])줄" }
   "  참고 중 '작성일 … 이번 달 비교에서 제외'(다른 달 세금계산서): " + @(2..$en | ? { "$($es.Cells($_,10).Text)" -match '이번 달 비교에서 제외' }).Count + "줄"
   $wb.Close($false)
-} finally { $xl.Quit() }
+} finally { $xl.Quit(); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($xl); $xl = $null; [GC]::Collect(); [GC]::WaitForPendingFinalizers() }   # 엑셀이 끝난 뒤에도 남아 작업 표시줄에 뜨던 것 방지 (2026-11-25)
 "== HTML"
 $h = [IO.File]::ReadAllText($Html)
 foreach ($w in 'GPT', '문장 복사', '클로드', 'Claude', '사용자') { $c = ([regex]::Matches($h, [regex]::Escape($w))).Count; if ($c) { "  '$w' $c곳" } }

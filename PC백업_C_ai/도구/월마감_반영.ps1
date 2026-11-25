@@ -1146,4 +1146,4 @@ try {
   "해외매출: $($row - 2)건 (신코·코마츠 $nPdf / MES $nMes / $lineName 참고 $nRef), 회계와 불일치·비교불가 $($nRed)건"
   "`n== 해외매출 에러내용(불일치)"; $gsNotes
   "`n== 오류목록 '에러' 분류"; $errList
-} finally { $xl.Quit() }
+} finally { $xl.Quit(); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($xl); $xl = $null; [GC]::Collect(); [GC]::WaitForPendingFinalizers() }   # 엑셀이 끝난 뒤에도 남아 작업 표시줄에 뜨던 것 방지 (2026-11-25)
