@@ -1,6 +1,7 @@
 ﻿param(
   [string]$Data = "$env:TEMP\카드전표\자료.json",                 # 지출결의_카드자료.ps1 결과
-  [string]$Journal = "$env:TEMP\참고1_전표.csv",                   # 1~11월 전표(참고1) CSV
+  [string]$Journal = "$env:TEMP\참고1_전표.csv",                   # 1~11월 전표(참고1) CSV — 없거나 참고1.xlsx보다 오래되면 아래 원본에서 자동으로 다시 만듦
+  [string]$JournalXlsx = 'C:\ai\매월마감\국내자동전표\참고1.xlsx',   # 참고1 원본(아마란스 전표 받은 엑셀)
   [string]$Template = 'C:\ai\매월마감\해외자동전표\자동전표처리(일반) 양식.xlsx',
   [string]$OutDir = "$env:USERPROFILE\Desktop\지출결의서\결과",
   [string]$VatBook = 'C:\ai\매월마감\국내자동전표\참고4.xlsx',          # 부가세 매입매출장: 결제카드 거래처코드·카드번호
@@ -19,6 +20,16 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Web.Extensions
 $ser = New-Object System.Web.Script.Serialization.JavaScriptSerializer; $ser.MaxJsonLength = [int]::MaxValue
 $docs = $ser.DeserializeObject([IO.File]::ReadAllText($Data, [Text.Encoding]::UTF8))
+# 참고1 전표 CSV(임시 폴더)가 없거나 원본 참고1.xlsx가 더 새것이면 다시 만듦 (2026-11-26: 임시 파일이 지워져 여기서 멈췄음)
+$needJ = -not (Test-Path -LiteralPath $Journal)
+if (-not $needJ -and (Test-Path -LiteralPath $JournalXlsx)) { $needJ = (Get-Item -LiteralPath $Journal).LastWriteTime -lt (Get-Item -LiteralPath $JournalXlsx).LastWriteTime }
+if ($needJ) {
+  if (-not (Test-Path -LiteralPath $JournalXlsx)) { throw "참고 전표 원본이 없습니다: $JournalXlsx (아마란스에서 1~11월 전표를 엑셀로 받아 이 이름으로 저장해 주세요)" }
+  Write-Host "  참고 전표 목록을 원본에서 다시 만드는 중... ($JournalXlsx)"
+  . (Join-Path $PSScriptRoot '참고1_CSV만들기.ps1')
+  $nJ = ConvertTo-JournalCsv $JournalXlsx $Journal
+  Write-Host "  → 참고 전표 $nJ 줄 준비됨"
+}
 $J = Import-Csv $Journal -Encoding UTF8
 $bizKind = @{}; if (Test-Path -LiteralPath $BizStatus) { foreach ($s9 in (Import-Csv $BizStatus -Encoding UTF8)) { $bizKind[$s9.사업자번호] = $s9.구분 } }
 # 결제카드: 언제나 카드사 거래처코드. 카드번호별로 따로 등록된 코드(예: 90009)는 쓰지 않는다 (2026-11-19 사용자 지정)
