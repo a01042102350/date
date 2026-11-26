@@ -245,24 +245,13 @@ try {
   Move-Item -LiteralPath $tmpUp $upload -Force
 
   # 새 거래처 업로드 엑셀 (아마란스 거래처엑셀업로드 양식: 1줄 이름 / 2줄 칸코드 / 3줄 설명 / 4줄부터 자료)
+  # 2026-11-27 사용자가 준 양식(6칸: 회사코드·거래처구분·코드·거래처명·약칭·사업자번호)으로 바꿈.
+  # 엑셀로 다시 저장하지 않고 양식 파일에 줄만 더함(새거래처_양식채우기.ps1). 양식에 없는 칸(대표자·주소·전화 등)은 넣지 않음.
   $newUp = Join-Path $OutDir "지출결의_새거래처_$stamp.xlsx"
   if (Test-Path -LiteralPath $newUp) { $bkD = Join-Path $OutDir '백업'; New-Item -ItemType Directory -Force $bkD | Out-Null; Move-Item -LiteralPath $newUp (Join-Path $bkD "지출결의_새거래처_$($stamp)_$(Get-Date -Format 'HHmmss').xlsx") -Force }
   if ($TRADD.Count) {
-    if (-not (Test-Path -LiteralPath $TradeTemplate)) { throw "거래처 업로드 양식이 없습니다: $TradeTemplate" }
-    $tmpTr = Join-Path $work '새거래처_임시.xlsx'; if (Test-Path -LiteralPath $tmpTr) { Remove-Item -LiteralPath $tmpTr -Force }
-    $wbT = $xl.Workbooks.Open($TradeTemplate, 0, $true); $wbT.SaveAs($tmpTr, 51)
-    $shT = $wbT.Worksheets.Item(1); $mxT = $shT.UsedRange.Columns.Count; $colT = @{}
-    for ($ci = 1; $ci -le $mxT; $ci++) { $cd = "$($shT.Cells(2, $ci).Value2)".Trim(); if ($cd -and -not $colT.ContainsKey($cd)) { $colT[$cd] = $ci } }
-    $needT = 'CO_CD', 'TR_FG', 'TR_CD', 'TR_NM', 'ATTR_NM', 'CEO_NM', 'REG_NB', 'FOR_YN', 'DIV_ADDR1', 'TEL', 'USE_YN'
-    $missT = @($needT | Where-Object { -not $colT.ContainsKey($_) }); if ($missT.Count) { throw "거래처 양식에 칸이 없음: $($missT -join ', ')" }
-    $nT = $TRADD.Count; $arrT = New-Object 'object[,]' $nT, $mxT; $i = 0
-    foreach ($t0 in $TRADD.Values) {
-      $vals = @{ CO_CD = '1000'; TR_FG = '1'; TR_CD = $t0.코드; TR_NM = $t0.이름; ATTR_NM = $t0.이름; CEO_NM = $t0.대표자; REG_NB = $t0.사업자번호; FOR_YN = '0'; DIV_ADDR1 = $t0.주소; TEL = $t0.전화; USE_YN = '1' }
-      foreach ($k in $vals.Keys) { if ("$($vals[$k])") { $arrT[$i, ($colT[$k] - 1)] = [string]$vals[$k] } }; $i++
-    }
-    $rgT = $shT.Range($shT.Cells(4, 1), $shT.Cells(3 + $nT, $mxT)); $rgT.NumberFormat = '@'; $rgT.Value2 = $arrT
-    $wbT.Save(); $wbT.Close($false)
-    Move-Item -LiteralPath $tmpTr $newUp -Force
+    $recT = @(foreach ($t0 in $TRADD.Values) { @{ CO_CD = '1000'; TR_FG = '1'; TR_CD = $t0.코드; TR_NM = $t0.이름; ATTR_NM = $t0.이름; CEO_NM = $t0.대표자; REG_NB = $t0.사업자번호; FOR_YN = '0'; DIV_ADDR1 = $t0.주소; TEL = $t0.전화; USE_YN = '1' } })
+    & (Join-Path $PSScriptRoot '새거래처_양식채우기.ps1') -Template $TradeTemplate -Out $newUp -Records $recT
   }
 
   # 검토 엑셀
