@@ -761,6 +761,8 @@ try {
   # 사용자 확인 목록 (월 폴더 '확인완료.csv': 거래처,항목,사유,확인일) — 여기 적힌 거래처의 'MES 출고 없음'은 에러 대신 참고 (2026-11-12)
   $okList = @{}; $okF = "$base\확인완료.csv"
   if (Test-Path $okF) { foreach ($o0 in @(Import-Csv $okF -Encoding UTF8)) { if ("$($o0.항목)" -match 'MES 출고 없음' -and "$($o0.거래처)".Trim()) { $okList[(& $kNorm $o0.거래처)] = [pscustomobject]@{ Why = "$($o0.사유)".Trim(); D = "$($o0.확인일)".Trim() } } }; "사용자 확인 목록: $($okList.Count)곳 ($okF)" }
+  # 사용자가 확인한 세금계산서 차이 (확인완료.csv 항목 '세금계산서 차이 -2,166,183'처럼 금액까지) → 차이가 그 금액 그대로면 빨간색 대신 연한 노랑 '확인함' (2026-11-26, 6월 엘에스엠트론 = 단가 소급, 일별마감이 맞음)
+  $okTax = @{}; if (Test-Path $okF) { foreach ($o0 in @(Import-Csv $okF -Encoding UTF8)) { if ("$($o0.항목)" -match '세금계산서' -and "$($o0.거래처)".Trim()) { $am0 = $null; if ("$($o0.항목)" -match '(-?[\d,]+)\s*원?\s*$') { $am0 = [double]($matches[1] -replace ',', '') }; $okTax[(& $kNorm $o0.거래처)] = [pscustomobject]@{ Why = "$($o0.사유)".Trim(); D = "$($o0.확인일)".Trim(); Amt = $am0 } } } }
   $sumCat = { param($xs, $cats0, $f) [double](($xs | ? { $cats0 -contains $_.Cat } | measure $f -Sum).Sum) }
   foreach ($g in @($dom.Values)) {
     $note = @(); $rowsG = @($g.Rows); $tx = @($g.Tax); $dy = @($g.Day)
@@ -857,9 +859,12 @@ try {
         }
       }
       if ($hasDay -or $isKH) {
-        $td = $sup - $saleA; if ([math]::Abs($td) -ge 1) { $ks.Cells($krow, 19).Value2 = $td; $ks.Cells($krow, 19).Interior.Color = $RED
-          $msg = "세금계산서 공급가액 {0:N0}원이 {1} 매출(일별마감) {2:N0}원과 {3:N0}원 다름 → 계산서 금액 확인(수정세금계산서 필요 여부)" -f $sup, $mLab, $saleA, $td
-          $note += "$msg (전자세금계산서 금액 오류 시트)"; $taxErr += [pscustomobject]@{ Cust = $g.Cust; Sale = $saleA; Mes = $amt; Sup = $sup; Diff = $td; N = $tx.Count; D = ((@($tx | % D | select -Unique)) -join ', '); Ser = $serAll; Why = $msg } }
+        $td = $sup - $saleA; if ([math]::Abs($td) -ge 1) { $ks.Cells($krow, 19).Value2 = $td
+          $okT = $okTax[$g.Key]; $isOkT = [bool]($okT -and ($okT.Amt -eq $null -or [math]::Abs($okT.Amt - $td) -lt 1))
+          $msg = "세금계산서 공급가액 {0:N0}원이 {1} 매출(일별마감) {2:N0}원과 {3:N0}원 다름 → " -f $sup, $mLab, $saleA, $td
+          if ($isOkT) { $ks.Cells($krow, 19).Interior.Color = 10284031; $msg += "확인함: {0} (사용자 확인 {1}, 참고)" -f $okT.Why, $okT.D }
+          else { $ks.Cells($krow, 19).Interior.Color = $RED; $msg += "계산서 금액 확인(수정세금계산서 필요 여부)" }
+          $note += "$msg (전자세금계산서 금액 오류 시트)"; $taxErr += [pscustomobject]@{ Cust = $g.Cust; Sale = $saleA; Mes = $amt; Sup = $sup; Diff = $td; N = $tx.Count; D = ((@($tx | % D | select -Unique)) -join ', '); Ser = $serAll; Why = $msg; Ok = $isOkT } }
       } else { $ks.Cells($krow, 12).Interior.Color = $RED; $msg = "세금계산서는 있는데 일별마감 $mLab 매출에 없음 → 거래처명이 다르거나 전월분인지 확인해 주세요"
         $note += "$msg (전자세금계산서 금액 오류 시트)"; $taxErr += [pscustomobject]@{ Cust = $g.Cust; Sale = $null; Mes = $amt; Sup = $sup; Diff = $sup; N = $tx.Count; D = ((@($tx | % D | select -Unique)) -join ', '); Ser = $serAll; Why = $msg } }
     } elseif ($taxF -and ($hasDay -or $isKH) -and [math]::Abs($saleA) -ge 1) {
@@ -910,7 +915,7 @@ try {
       foreach ($pair in @(@(2, $x.Sale), @(3, $x.Mes), @(4, $x.Sup), @(5, $x.Diff), @(6, $x.N))) { if ($pair[1] -ne $null) { $ts.Cells($trow, $pair[0]).Value2 = [double]$pair[1] } }
       $ts.Cells($trow, 7).NumberFormat = "@"; $ts.Cells($trow, 7).Value2 = [string]$x.D
       $ts.Cells($trow, 8).NumberFormat = "@"; $ts.Cells($trow, 8).Value2 = [string]$x.Ser
-      $ts.Cells($trow, 9).Value2 = [string]$x.Why; $ts.Cells($trow, 5).Interior.Color = $RED
+      $ts.Cells($trow, 9).Value2 = [string]$x.Why; $ts.Cells($trow, 5).Interior.Color = $(if ($x.Ok) { 10284031 } else { $RED })   # 연한 노랑 = 사용자가 확인한 차이
       $trow++
     }
     $ts.Cells($trow, 1).Value2 = '합계'; foreach ($cc in 2..5) { $cl = ($ts.Cells(1,$cc).Address($false,$false) -replace '\d',''); $ts.Cells($trow, $cc).Formula = "=SUM(${cl}2:${cl}$($trow-1))" }; $ts.Range($ts.Cells($trow,1), $ts.Cells($trow,9)).Font.Bold = $true
@@ -920,7 +925,7 @@ try {
   $h1 = $ts.Range($ts.Cells(1,1), $ts.Cells(1,9)); $h1.Font.Bold = $true; $h1.Interior.Color = $HEAD; $h1.WrapText = $true
   $ts.Columns("A:H").AutoFit() | Out-Null; foreach ($cc in 1, 7, 8) { if ($ts.Columns($cc).ColumnWidth -gt 30) { $ts.Columns($cc).ColumnWidth = 30; $ts.Columns($cc).WrapText = $true } }; $ts.Columns(9).ColumnWidth = 70; $ts.Columns(9).WrapText = $true
   $ts.Activate() | Out-Null; $xl.ActiveWindow.SplitRow = 1; $xl.ActiveWindow.SplitColumn = 0; $xl.ActiveWindow.FreezePanes = $true
-  $nTaxErr = $taxErr.Count
+  $nTaxErr = @($taxErr | ? { -not $_.Ok }).Count   # 확인함(연한 노랑)은 개수에서 뺌
 
   # 11) 오류 시트 합치기 → '오류목록' 한 장 (분류: 에러 / 10월 이월 / 참고)
   function T($x, $date) { if ($x -eq $null -or "$x" -eq '') { '' } elseif ($date -and $x -is [double]) { [DateTime]::FromOADate($x).ToString('yyyy-MM-dd') } elseif ($x -is [double]) { $x.ToString('#,##0.####') } else { "$x".Trim() } }
