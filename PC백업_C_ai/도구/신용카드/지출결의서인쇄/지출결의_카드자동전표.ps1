@@ -55,10 +55,14 @@ if ((Test-Path -LiteralPath $TradeList) -and (Get-Item -LiteralPath $TradeList).
   if ($lastReg) { $nextCode = [int]$lastReg.trCd + 1; Write-Host "  아마란스 거래처 $($master.Count)곳 / 가장 최근 등록 $($lastReg.trCd) $($lastReg.trNm) ($($lastReg.insertDt)) → 새 코드는 $('{0:D5}' -f $nextCode)부터" }
 } else { Write-Host '  아마란스 거래처 목록(오늘 것)이 없어 새 거래처 코드는 비워 둡니다' -ForegroundColor Yellow }
 function New-TrCode { while ($codeSet.ContainsKey(('{0:D5}' -f $script:nextCode))) { $script:nextCode++ }; $c0 = '{0:D5}' -f $script:nextCode; $codeSet[$c0] = 1; $script:nextCode++; $c0 }
-$NEWTR = [ordered]@{}   # 이번에 코드를 새로 매긴 거래처 (키: 사업자번호|가게이름)
+$TRADD = [ordered]@{}   # 이번에 코드를 새로 매긴 거래처 (키: 사업자번호|가게이름)
 # 이름 맞추기: 괄호·(주)·띄어쓰기·기호를 빼고 비교. '결제대행/가맹점' 모양이면 '/' 뒤 가맹점 이름끼리 비교(앞 결제대행 이름이 같아도 다른 가게)
 #  같음 = 100, 한쪽이 다른 쪽을 품음(2글자 이상) = 50+글자수, 겹친 글자가 4글자 이상이면서 짧은 이름의 60% 이상 = 겹친 글자수, 그 밖 = 0
 function NormNm($s) { ("$s" -replace '주식회사|\(주\)|㈜|\(재\)|\(사\)', '' -replace '[\s\(\)\[\]\-_/\.,·&]', '').ToLower() }
+# 겹치는 가장 긴 글자 수(이름 맞추기 보조), 영수증 대표자·전화 정리(영수증마다 칸이 달라 '전화번호' 같은 글자·가려진 이름 '이*희'·'(02)-0000-0000'이 들어옴 → 비움) (2026-11-26)
+function LcsLen($a, $b) { $x = NormNm (ShopPart $a); $y = NormNm (ShopPart $b); $best = 0; for ($i = 0; $i -lt $x.Length; $i++) { for ($k = $i + $best + 1; $k -le $x.Length; $k++) { if ($y.Contains($x.Substring($i, $k - $i))) { $best = $k - $i } else { break } } }; $best }
+function CleanCeo($s) { $t = "$s".Trim(); if ($t -match '전화|번호|주소|사업자|대표|가맹|\*' -or $t.Length -gt 30) { '' } else { $t } }
+function CleanTel($s) { $t = "$s".Trim(); $dg = $t -replace '\D', ''; if ($dg.Length -lt 8 -or $dg -match '0000000') { '' } else { $t } }
 function ShopPart($s) { $t = "$s"; if ($t.Contains('/')) { $t.Substring($t.LastIndexOf('/') + 1) } else { $t } }
 function NameScore($a, $b) {
   $x = NormNm (ShopPart $a); $y = NormNm (ShopPart $b); if (-not $x -or -not $y) { return 0 }
@@ -67,7 +71,12 @@ function NameScore($a, $b) {
   $best = 0; for ($i = 0; $i -lt $x.Length; $i++) { for ($k = $i + $best + 1; $k -le $x.Length; $k++) { if ($y.Contains($x.Substring($i, $k - $i))) { $best = $k - $i } else { break } } }
   if ($best -ge 4 -and $best -ge 0.6 * [Math]::Min($x.Length, $y.Length)) { return $best } else { return 0 }
 }
-$PGRX = '/|이니시스|KCP|KICC|나이스|NICE|TOSS|토스|카카오페이|네이버페이|인터넷상거래|결제|결재|요금창구|세외수입'   # 결제대행을 거친 가맹점 이름
+$PGRX = '/|이니시스|KCP|KICC|나이스|NICE|TOSS|토스(?!트)|카카오페이|네이버페이|인터넷상거래|결제|결재|요금창구|세외수입|스마트로'   # 결제대행을 거친 가맹점 이름 ('토스트'는 아님, 2026-11-26)
+# 결제대행 사업자번호 = 그 번호로 등록된 거래처 이름 중 결제대행 모양(예: 'KCP결제/한국표준협회', '쏘카_KICC/쏘카')이 2곳 이상이거나 25% 이상 → 가게마다 따로 거래처
+#   (KCP 85%·이니시스 58%·토스 67%·KICC 67%·나이스 50%·스마트로 50% / 코레일유통은 17곳 중 0곳 → 일반 사업자)
+$pgBiz = @{}; foreach ($b9 in @($trByBiz.Keys)) { $all9 = @($trByBiz[$b9]); $pg9 = @($all9 | Where-Object { "$($_[1])" -match $PGRX }).Count; if ($pg9 -ge 2 -or ($pg9 -ge 1 -and $pg9 / $all9.Count -ge 0.25)) { $pgBiz[$b9] = 1 } }
+# 거래처코드별 전표 줄 수(참고1) — 같은 사업자번호에 여러 곳이면 많이 쓴 곳을 고를 때 씀
+$trUse = @{}; foreach ($l in $J) { $c9 = "$($l.거래처코드)"; if ($c9) { if ($trUse.ContainsKey($c9)) { $trUse[$c9]++ } else { $trUse[$c9] = 1 } } }
 $pjByName = @{}; foreach ($g in ($J | Where-Object { $_.프로젝트코드 } | Group-Object 프로젝트코드)) { $nm = ($g.Group | Group-Object 프로젝트명 | Sort-Object Count -Descending | Select-Object -First 1).Name; $pjByName[$nm] = $g.Name; $pjByName[($nm -replace '\s*\(.*$', '')] = $g.Name }
 $CARD = @{ '기업' = @('99706', '기업비씨카드'); '농협' = @('99708', '농협비씨카드'); '경남' = @('99709', '경남비씨카드(2113)'); '하나' = @('99905', '하나카드'); '국민' = @('99701', '국민카드'); '현대' = @('99903', '현대카드') }
 foreach ($k in @($CARD.Keys)) { $hit = $J | Where-Object { $_.거래처코드 -eq $CARD[$k][0] } | Select-Object -First 1; if ($hit) { $CARD[$k] = @($CARD[$k][0], $hit.거래처명.Trim()) } }
@@ -150,19 +159,33 @@ foreach ($d in $docs) { foreach ($it in $d['items']) {
     foreach ($cand in $trByBiz[$biz]) { $s0 = NameScore $rc['name'] $cand[1]; if ($s0 -gt $bestS) { $bestS = $s0; $best = $cand } }
     # 사업자번호에 등록 거래처가 하나뿐이고 결제대행 모양이 아니면 이름이 달라도 그 거래처(예: 철도승차권 = 한국철도공사)
     if (-not $best -and $trByBiz[$biz].Count -eq 1 -and "$($rc['name'])" -notmatch $PGRX -and "$($trByBiz[$biz][0][1])" -notmatch $PGRX) { $best = $trByBiz[$biz][0] }
+    # 결제대행 번호가 아니면 사업자번호가 같으면 같은 사업자 → 새로 만들지 않고 기존 거래처를 씀 (2026-11-26 사용자: "사업자번호가 같으면 굳이 새로 등록할 필요 없음")
+    #   여러 곳이면 ① 이름이 4글자 이상 겹치는 곳(예: '스타벅스코리아' → '스타벅스커피코리아') ② 아니면 전표에 가장 많이 쓴 곳(예: 코레일유통 번호의 모르는 가게 → 코레일유통(주))
+    if (-not $best -and -not $pgBiz.ContainsKey($biz) -and "$($rc['name'])" -notmatch $PGRX) {
+      $bk = -1; $bc = $null
+      foreach ($cand in $trByBiz[$biz]) { $l0 = LcsLen $rc['name'] $cand[1]; $u0 = $(if ($trUse.ContainsKey("$($cand[0])")) { $trUse["$($cand[0])"] } else { 0 }); $k0 = $(if ($l0 -ge 4) { 1000000 + $l0 * 10000 } else { 0 }) + [Math]::Min($u0, 9999); if ($k0 -gt $bk) { $bk = $k0; $bc = $cand } }
+      if ($bc) {
+        $best = $bc
+        if ((NameScore $rc['name'] $bc[1]) -eq 0) { [void]$CHK.Add([pscustomobject]@{ 문서 = $d['docNo']; 내용 = $desc; 확인 = "영수증 이름 '$($rc['name'])'은 다르지만 사업자번호($biz)가 같은 기존 거래처 [$($bc[0])] $($bc[1]) 를 씀(새로 등록 안 함)$(if (@($trByBiz[$biz]).Count -gt 1) { " — 같은 번호로 $(@($trByBiz[$biz]).Count)곳 등록돼 있음" })" }) }
+      }
+    }
     if ($best) { $trCd = $best[0]; $trNm = $best[1]; $newTr = $false }
   }
   # 새 거래처: 코드를 매겨 전표에 넣고 '새거래처' 업로드 파일에도 같은 코드로 넣음 (같은 가게가 여러 번 나오면 같은 코드)
   if ($newTr -and $null -ne $nextCode -and $biz.Length -eq 10) {
     $nk = "$biz|$(NormNm (ShopPart $rc['name']))"
-    if (-not $NEWTR.Contains($nk)) { $nm0 = "$($rc['name'])".Trim(); if ($nm0.Length -gt 60) { $nm0 = $nm0.Substring(0, 60) }; $NEWTR[$nk] = [pscustomobject]@{ 코드 = (New-TrCode); 이름 = $nm0; 사업자번호 = $biz; 대표자 = "$($rc['ceo'])".Trim(); 주소 = "$($rc['addr'])".Trim(); 전화 = "$($rc['tel'])".Trim() } }
-    $trCd = $NEWTR[$nk].코드; $trNm = $NEWTR[$nk].이름
+    if (-not $TRADD.Contains($nk)) {
+      $nm0 = "$($rc['name'])".Trim(); if ($nm0.Length -gt 60) { $nm0 = $nm0.Substring(0, 60) }
+      $TRADD[$nk] = [pscustomobject]@{ 코드 = (New-TrCode); 이름 = $nm0; 사업자번호 = $biz; 대표자 = (CleanCeo $rc['ceo']); 주소 = "$($rc['addr'])".Trim(); 전화 = (CleanTel $rc['tel']) }
+      if ($trByBiz.ContainsKey($biz)) { [void]$CHK.Add([pscustomobject]@{ 문서 = $d['docNo']; 내용 = $desc; 확인 = "새 거래처 '$nm0'(코드 $($TRADD[$nk].코드)) — 결제대행 사업자번호($biz)라 가게마다 따로 등록함. 이 번호로 이미 $(@($trByBiz[$biz]).Count)곳: $((@($trByBiz[$biz] | Select-Object -First 6 | ForEach-Object { "$($_[0]) $($_[1])" })) -join ', ')$(if (@($trByBiz[$biz]).Count -gt 6) { ' …' }). 그중 같은 가게가 있으면 업로드 파일에서 이 줄을 지우고 전표 코드를 그 코드로 바꾸세요" }) }
+    }
+    $trCd = $TRADD[$nk].코드; $trNm = $TRADD[$nk].이름
   }
   # 대리운전·택시는 적요 '_#' 앞에 '교통비'를 넣음(예: 고객응대 교통비_#하나8508, 2026-11-13 사용자 지정). 이미 '교통비'가 있으면 그대로
   $tail = ''; if (($use -match '대리' -or $desc -match '대리|택시' -or "$($rc['name'])" -match '대리|택시') -and $desc -notmatch '교통비') { $tail = ' 교통비' }
   $suffix = "$tail`_#$co$l4"; $rmk = "$desc".Trim(); if (($rmk + $suffix).Length -gt 80) { $rmk = $rmk.Substring(0, 80 - $suffix.Length).Trim() }; $rmk = $rmk + $suffix
   [void]$VOU.Add([pscustomobject]@{ 문서 = $d['docNo']; 문서제목 = $d['title']; 순번 = $it['no']; 날짜 = $dt; 용도 = $use; 내용 = $desc; 가맹점 = "$($rc['name'])"; 사업자번호 = $biz; 과세유형 = $kindTx; 거래처코드 = $trCd; 거래처명 = $trNm; 새거래처 = $newTr
-    대표자 = "$($rc['ceo'])"; 주소 = "$($rc['addr'])"; 전화 = "$($rc['tel'])"; 카드사 = $co; 카드번호 = ("$($rc['cardNo'])" -replace '\D', ''); 끝4 = $l4; 승인번호 = "$($rc['approval'])"
+    대표자 = (CleanCeo $rc['ceo']); 주소 = "$($rc['addr'])"; 전화 = (CleanTel $rc['tel']); 카드사 = $co; 카드번호 = ("$($rc['cardNo'])" -replace '\D', ''); 끝4 = $l4; 승인번호 = "$($rc['approval'])"
     계정 = $acct; 분류 = $cat; 프로젝트 = $pj; 프로젝트근거 = $pjWhy; 공급가액 = $sup; 부가세 = $vat; 합계 = $total; 부가세줄 = $vatLine; 적요 = $rmk; 참고 = $why })
 } }
 
@@ -183,9 +206,9 @@ foreach ($v in $VOU) {
   $ln++; $c = $base.Clone(); $c.MENU_LN_SQ = $ln; $c.DRCR_FG = '4'; $c.ACCT_CD = '2530000'; $c.TR_CD = $CARD[$v.카드사][0]; $c.TR_NM = $CARD[$v.카드사][1]; $c.ACCT_AM = $v.합계
   [void]$LINES.Add($c)
 }
-if ($NEWTR.Count) {
-  $cds = @($NEWTR.Values | ForEach-Object { $_.코드 })
-  $CHK.Insert(0, [pscustomobject]@{ 문서 = '(전체)'; 내용 = "새 거래처 $($NEWTR.Count)곳 먼저 등록"; 확인 = "전표 올리기 전에 '지출결의_새거래처_$(Get-Date -Format 'yyyyMMdd').xlsx'를 아마란스 회계관리 > 회계기초정보관리 > 거래처/계좌/카드관리 > 거래처엑셀업로드에서 먼저 등록(기능모음 > 파일업로드 → 변환하기). 코드 $($cds[0])~$($cds[-1]). 등록 후 일반거래처등록에서 코드가 파일과 같은지 확인(다르면 전표 파일 코드도 고쳐야 함)" })
+if ($TRADD.Count) {
+  $cds = @($TRADD.Values | ForEach-Object { $_.코드 })
+  $CHK.Insert(0, [pscustomobject]@{ 문서 = '(전체)'; 내용 = "새 거래처 $($TRADD.Count)곳 먼저 등록"; 확인 = "전표 올리기 전에 '지출결의_새거래처_$(Get-Date -Format 'yyyyMMdd').xlsx'를 아마란스 회계관리 > 회계기초정보관리 > 거래처/계좌/카드관리 > 거래처엑셀업로드에서 먼저 등록(기능모음 > 파일업로드 → 변환하기). 코드 $($cds[0])~$($cds[-1]). 등록 후 일반거래처등록에서 코드가 파일과 같은지 확인(다르면 전표 파일 코드도 고쳐야 함)" })
 }
 foreach ($v in ($VOU | Where-Object 새거래처)) {
   $msg = if ($v.거래처코드) { "새 거래처: '$($v.가맹점)' 사업자번호 $($v.사업자번호) — 아마란스에 없음 → 코드 $($v.거래처코드)로 새로 매김('새거래처' 파일로 먼저 등록)" }
@@ -224,7 +247,7 @@ try {
   # 새 거래처 업로드 엑셀 (아마란스 거래처엑셀업로드 양식: 1줄 이름 / 2줄 칸코드 / 3줄 설명 / 4줄부터 자료)
   $newUp = Join-Path $OutDir "지출결의_새거래처_$stamp.xlsx"
   if (Test-Path -LiteralPath $newUp) { $bkD = Join-Path $OutDir '백업'; New-Item -ItemType Directory -Force $bkD | Out-Null; Move-Item -LiteralPath $newUp (Join-Path $bkD "지출결의_새거래처_$($stamp)_$(Get-Date -Format 'HHmmss').xlsx") -Force }
-  if ($NEWTR.Count) {
+  if ($TRADD.Count) {
     if (-not (Test-Path -LiteralPath $TradeTemplate)) { throw "거래처 업로드 양식이 없습니다: $TradeTemplate" }
     $tmpTr = Join-Path $work '새거래처_임시.xlsx'; if (Test-Path -LiteralPath $tmpTr) { Remove-Item -LiteralPath $tmpTr -Force }
     $wbT = $xl.Workbooks.Open($TradeTemplate, 0, $true); $wbT.SaveAs($tmpTr, 51)
@@ -232,8 +255,8 @@ try {
     for ($ci = 1; $ci -le $mxT; $ci++) { $cd = "$($shT.Cells(2, $ci).Value2)".Trim(); if ($cd -and -not $colT.ContainsKey($cd)) { $colT[$cd] = $ci } }
     $needT = 'CO_CD', 'TR_FG', 'TR_CD', 'TR_NM', 'ATTR_NM', 'CEO_NM', 'REG_NB', 'FOR_YN', 'DIV_ADDR1', 'TEL', 'USE_YN'
     $missT = @($needT | Where-Object { -not $colT.ContainsKey($_) }); if ($missT.Count) { throw "거래처 양식에 칸이 없음: $($missT -join ', ')" }
-    $nT = $NEWTR.Count; $arrT = New-Object 'object[,]' $nT, $mxT; $i = 0
-    foreach ($t0 in $NEWTR.Values) {
+    $nT = $TRADD.Count; $arrT = New-Object 'object[,]' $nT, $mxT; $i = 0
+    foreach ($t0 in $TRADD.Values) {
       $vals = @{ CO_CD = '1000'; TR_FG = '1'; TR_CD = $t0.코드; TR_NM = $t0.이름; ATTR_NM = $t0.이름; CEO_NM = $t0.대표자; REG_NB = $t0.사업자번호; FOR_YN = '0'; DIV_ADDR1 = $t0.주소; TEL = $t0.전화; USE_YN = '1' }
       foreach ($k in $vals.Keys) { if ("$($vals[$k])") { $arrT[$i, ($colT[$k] - 1)] = [string]$vals[$k] } }; $i++
     }
@@ -265,4 +288,4 @@ try {
 "전표 $($VOU.Count)장 ($($LINES.Count)줄) / 부가세대급금 $(@($VOU | Where-Object 부가세줄).Count)장 / 뺀 것 $($SKIP.Count)건 / 확인할 것 $($CHK.Count)건"
 "차변 합계 {0:N0} / 대변 합계 {1:N0}" -f (($LINES | Where-Object { $_.DRCR_FG -eq '3' } | ForEach-Object { $_.ACCT_AM } | Measure-Object -Sum).Sum), (($LINES | Where-Object { $_.DRCR_FG -eq '4' } | ForEach-Object { $_.ACCT_AM } | Measure-Object -Sum).Sum)
 "업로드: $upload"; "검토: $review"
-if ($NEWTR.Count) { "새 거래처 $($NEWTR.Count)곳 (코드 $(@($NEWTR.Values)[0].코드)~$(@($NEWTR.Values)[-1].코드)): $newUp  ← 전표보다 먼저 아마란스 거래처엑셀업로드로 등록" }
+if ($TRADD.Count) { "새 거래처 $($TRADD.Count)곳 (코드 $(@($TRADD.Values)[0].코드)~$(@($TRADD.Values)[-1].코드)): $newUp  ← 전표보다 먼저 아마란스 거래처엑셀업로드로 등록" }
