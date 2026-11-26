@@ -165,9 +165,12 @@ if ($wantVou) {
   & "$S\사업자상태_조회.ps1"
   if (Test-Path $bizFile) {
     $new = @(Import-Csv $bizFile -Encoding UTF8)
-    $keep = @($old | Where-Object { $_.사업자번호 -notin @($new | ForEach-Object { $_.사업자번호 }) })
+    # 이번에 없던 곳 + 이번에 '조회 실패'인데 전에는 조회됐던 곳 → 전 결과를 씀 (실패로 덮어쓰지 않게, 2026-11-26)
+    $newNo = @($new | ForEach-Object { $_.사업자번호 }); $newOk = @($new | Where-Object { $_.구분 -ne '조회 실패' } | ForEach-Object { $_.사업자번호 })
+    $keep = @($old | Where-Object { $_.사업자번호 -notin $newOk -and ($_.구분 -ne '조회 실패' -or $_.사업자번호 -notin $newNo) })
     if ($keep.Count) {
-      (@($new) + @($keep)) | Sort-Object 사업자번호 -Unique | Export-Csv $bizFile -NoTypeInformation -Encoding UTF8
+      $keepNo = @($keep | ForEach-Object { $_.사업자번호 })
+      (@($new | Where-Object { $_.사업자번호 -notin $keepNo }) + @($keep)) | Sort-Object 사업자번호 -Unique | Export-Csv $bizFile -NoTypeInformation -Encoding UTF8
       Say "   전에 조회한 $($keep.Count)곳과 합쳤습니다"
     }
   }
