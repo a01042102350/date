@@ -190,7 +190,27 @@ foreach ($d in $docs) { foreach ($it in $d['items']) {
 } }
 
 # 작성번호 (날짜마다 StartNo부터, 문서 순서대로)
-$seq = @{}; foreach ($v in $VOU) { $k = $v.날짜.ToString('yyyyMMdd'); if (-not $seq.ContainsKey($k)) { $seq[$k] = $StartNo } else { $seq[$k]++ }; $v | Add-Member 작성번호 $seq[$k] }
+# 2026-11-27: 예전에 만든 카드 전표 업로드 파일(결과·지난결과 폴더, 백업 제외)에서 이미 쓴 날짜·번호는 건너뜀.
+#  11/13에 올려 발행한 11/06·11/09·11/11 3000번대와 겹쳐 "이미 발행되어 추가입력할 수 없습니다"로 업로드가 실패했었음.
+$usedNo = @{}; $todayUp = "지출결의_카드자동전표_$(Get-Date -Format 'yyyyMMdd').xlsx"
+$prevDirs = @(@($OutDir, (Join-Path (Split-Path $OutDir) '지난결과')) | Where-Object { Test-Path -LiteralPath $_ })
+foreach ($pf in @(Get-ChildItem -LiteralPath $prevDirs -Recurse -Filter '지출결의_카드자동전표_*.xlsx' -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch '검토|분개확인' -and $_.FullName -notmatch '\\백업\\' -and $_.Name -ne $todayUp })) {
+  try { $px = Read-Xlsx $pf.FullName 1 } catch { Write-Host "  (예전 전표 파일을 못 읽음: $($pf.Name))" -ForegroundColor Yellow; continue }
+  $r2 = $px.Rows | Where-Object { $_.R -eq 2 } | Select-Object -First 1; if (-not $r2) { continue }
+  $cDt = $null; $cSq = $null; foreach ($k9 in $r2.Cells.Keys) { $v9 = "$($r2.Cells[$k9])".Trim(); if ($v9 -eq 'MENU_DT') { $cDt = $k9 } elseif ($v9 -eq 'MENU_SQ') { $cSq = $k9 } }
+  if (-not $cDt -or -not $cSq) { continue }
+  foreach ($pr in ($px.Rows | Where-Object { $_.R -ge 4 })) { $d0 = "$($pr.Cells[$cDt])".Trim(); $s0 = "$($pr.Cells[$cSq])".Trim(); if ($d0 -match '^\d{8}$' -and $s0 -match '^\d+$') { $usedNo["$d0|$([int]$s0)"] = $pf.Name } }
+}
+$seq = @{}; $skipped = @{}
+foreach ($v in $VOU) {
+  $k = $v.날짜.ToString('yyyyMMdd'); $n0 = if ($seq.ContainsKey($k)) { $seq[$k] + 1 } else { $StartNo }
+  while ($usedNo.ContainsKey("$k|$n0")) { $skipped[$k] = 1; $n0++ }
+  $seq[$k] = $n0; $v | Add-Member 작성번호 $n0
+}
+if ($skipped.Count) {
+  $first = @{}; foreach ($v in $VOU) { $k = $v.날짜.ToString('yyyyMMdd'); if ($skipped.ContainsKey($k) -and -not $first.ContainsKey($k)) { $first[$k] = $v.작성번호 } }
+  Write-Host "  예전에 올린 전표와 번호가 겹치지 않게 건너뜀: $((@($first.Keys | Sort-Object | ForEach-Object { "$_ 은 $($first[$_])번부터" })) -join ', ')"
+}
 # 업로드 줄
 $LINES = New-Object Collections.ArrayList
 foreach ($v in $VOU) {
