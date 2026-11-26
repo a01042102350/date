@@ -689,14 +689,24 @@ try {
       # 소계 범위 안인데 업체명·출하일·품번이 빈 금액 줄(예: 10월 현대로템 97행 '24년 코레일 EMU-260 고속전철 78량' 18,100,000원) = 그 소계 거래처의 이번 달 매출 (2026-11-12)
       $inSubNo = (-not $c0) -and $covD[$i] -and -not ($d0 -is [double]) -and [double](Num $dv[$i,8]) -ne 0
       if ($inSubNo) { $c0 = "$($dv[$subA[$covD[$i]],2])".Trim(); if (-not $pn) { $pn = "$($dv[$i,3])".Trim() } }
+      # 단가 소급 줄: 출하일 없이 업체·품명·품번·비고 칸에 '소급'이 적힌 금액 줄(합계 식 줄 제외) = 그 위 거래처의 이번 달 단가 소급 매출 (사용자 2026-11-26)
+      #   예: 1·2·6월 명화 품번 칸 '단가소급'(업체 칸 빈칸), 5월 업체 칸 '단가 소급', 4월 명화 품명 '1월소급'~'4월소급'(합 110,863,472원 = 4/30 단가 소급 세금계산서), 8월 엘에스엠트론 'Case-Axle소급(6/19~7월)'
+      $retroNo = $false
+      if (-not ($d0 -is [double]) -and "$($dv[$i,2])|$($dv[$i,3])|$($dv[$i,4])|$($dv[$i,9])" -match '소급' -and [double](Num $dv[$i,8]) -ne 0 -and "$($dfm[$i,1])" -notmatch '^=\+?(SUM|SUBTOTAL)\(|^=\+?H\d+\s*[\+\-]') {
+        $cU = if ($c0 -and $c0 -notmatch '소급') { $c0 } else { $u0 = ''; for ($j = $i - 1; $j -ge 2 -and -not $u0; $j--) { $t0 = "$($dv[$j,2])".Trim(); if ($t0 -and $t0 -notmatch '소급') { $u0 = $t0 } }; $u0 }
+        if ($cU) { $c0 = $cU; $retroNo = $true; if (-not $pn) { $pn = (@("$($dv[$i,3])".Trim(), "$($dv[$i,2])".Trim()) | ? { $_ })[0] } }
+      }
       if (-not $c0) { continue }
-      if (-not ($d0 -is [double]) -and -not $pn) { continue }   # 소계 줄
+      if (-not $retroNo -and -not ($d0 -is [double]) -and -not $pn) { continue }   # 소계 줄
       $k0 = & $kNorm $c0; if ($pdfCustK[$k0]) { continue }       # 신코·코마츠 = 해외매출(PDF 기준)
       $ymD = if ($d0 -is [double]) { $dd = [DateTime]::FromOADate($d0); $dd.Year * 100 + $dd.Month } else { 0 }
       $b0 = "$($dv[$i,9])".Trim(); $q0 = [double](Num $dv[$i,6]); $a0 = [double](Num $dv[$i,8])
+      if ($retroNo) { $b0 = (@("단가 소급 줄 '$pn'") + @($(if ($b0) { $b0 }))) -join ' / ' }
       $dKv = if ($dCarryC) { "$($dv[$i,$dCarryC])".Trim() } else { '' }
       $isBd = "$($dv[$i,8])" -match '불량\s*대체'   # 금액 칸에 '불량대체'(또는 '불량 대체') = 매출 아님 → 소계 밖이어도 이월로 보지 않음
-      $cat = if ($b0 -match '불량반출') { 'bad' }
+      # 출하일 없는 단가 소급 줄은 소계 범위 밖이어도 이월로 보지 않음 (맨 앞에서 'retro')
+      $cat = if ($retroNo) { 'retro' }
+             elseif ($b0 -match '불량반출') { 'bad' }
              elseif ($b0 -match "^$($nextNo)월\s*이월" -or $dKv -match "^$($nextNo)월\s*이월") { if ($dKv) { $b0 = (@("매출이월여부: $dKv") + @($(if ($b0) { $b0 }))) -join ' / ' }; 'carry' }
              elseif ($isBd) { if ($ymD -eq $closeYM) { 'cur' } elseif ($ymD) { 'prev' } else { 'nodate' } }
              elseif ($subK[$k0] -and -not $covD[$i]) { if (-not $b0) { $b0 = '(비고 없음 · 일별마감 소계 범위 밖)' }; 'carry' } elseif ($b0 -match '소급') { 'retro' } elseif ($a0 -lt 0 -or $q0 -lt 0) { 'ret' } elseif ($ymD -eq $closeYM) { 'cur' } elseif ($ymD) { 'prev' } else { 'nodate' }
