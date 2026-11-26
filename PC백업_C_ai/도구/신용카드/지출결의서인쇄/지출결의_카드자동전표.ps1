@@ -2,6 +2,8 @@
   [string]$Data = "$env:TEMP\카드전표\자료.json",                 # 지출결의_카드자료.ps1 결과
   [string]$Journal = "$env:TEMP\참고1_전표.csv",                   # 1~11월 전표(참고1) CSV — 없거나 참고1.xlsx보다 오래되면 아래 원본에서 자동으로 다시 만듦
   [string]$JournalXlsx = 'C:\ai\매월마감\국내자동전표\참고1.xlsx',   # 참고1 원본(아마란스 전표 받은 엑셀)
+  [string]$TradeList = "$env:TEMP\카드전표\거래처목록.json",          # 거래처목록_받기.ps1 결과(아마란스 거래처 전체, 오늘 받은 것만 씀)
+  [string]$TradeTemplate = (Join-Path $PSScriptRoot '거래처엑셀업로드_양식.xlsx'),   # 아마란스 거래처엑셀업로드 양식(양식만들기로 받은 것)
   [string]$Template = 'C:\ai\매월마감\해외자동전표\자동전표처리(일반) 양식.xlsx',
   [string]$OutDir = "$env:USERPROFILE\Desktop\지출결의서\결과",
   [string]$VatBook = 'C:\ai\매월마감\국내자동전표\참고4.xlsx',          # 부가세 매입매출장: 결제카드 거래처코드·카드번호
@@ -40,6 +42,20 @@ function Num($s) { $t = ("$s" -replace '[^\d\-]', ''); if ($t) { [double]$t } el
 # ── 참고표 ──
 $trByBiz = @{}; $seenTr = @{}
 foreach ($l in $J) { $b = ($l.사업자번호 -replace '\D', ''); if ($b.Length -eq 10 -and $l.거래처코드 -and $l.거래처코드 -notmatch '^999' -and -not $seenTr.ContainsKey("$b|$($l.거래처코드)")) { $seenTr["$b|$($l.거래처코드)"] = 1; if (-not $trByBiz.ContainsKey($b)) { $trByBiz[$b] = New-Object Collections.ArrayList }; [void]$trByBiz[$b].Add(@($l.거래처코드, "$($l.거래처명)".Trim())) } }
+# 아마란스 거래처 전체(거래처목록_받기.ps1, 오늘 받은 것) → ① 전표에 아직 안 쓴 거래처도 사업자번호로 찾음 ② 새 거래처 코드 = 가장 최근 등록 코드(예: 05723) 다음 번호부터, 있는 번호는 건너뜀 (2026-11-26 사용자: 새 거래처는 업로드 파일로 만들고 직접 올림)
+$master = @(); $codeSet = @{}; $nextCode = $null
+if ((Test-Path -LiteralPath $TradeList) -and (Get-Item -LiteralPath $TradeList).LastWriteTime.Date -eq (Get-Date).Date) {
+  $master = @(([IO.File]::ReadAllText($TradeList, [Text.Encoding]::UTF8) | ConvertFrom-Json).rows)
+  foreach ($m in $master) {
+    $codeSet["$($m.trCd)"] = 1
+    $b = ("$($m.regNb)" -replace '\D', '')
+    if ($b.Length -eq 10 -and $m.trCd -and "$($m.trCd)" -notmatch '^999' -and -not $seenTr.ContainsKey("$b|$($m.trCd)")) { $seenTr["$b|$($m.trCd)"] = 1; if (-not $trByBiz.ContainsKey($b)) { $trByBiz[$b] = New-Object Collections.ArrayList }; [void]$trByBiz[$b].Add(@("$($m.trCd)", "$($m.trNm)".Trim())) }
+  }
+  $lastReg = $master | Where-Object { "$($_.trCd)" -match '^\d{5}$' } | Sort-Object { "$($_.insertDt)" } -Descending | Select-Object -First 1
+  if ($lastReg) { $nextCode = [int]$lastReg.trCd + 1; Write-Host "  아마란스 거래처 $($master.Count)곳 / 가장 최근 등록 $($lastReg.trCd) $($lastReg.trNm) ($($lastReg.insertDt)) → 새 코드는 $('{0:D5}' -f $nextCode)부터" }
+} else { Write-Host '  아마란스 거래처 목록(오늘 것)이 없어 새 거래처 코드는 비워 둡니다' -ForegroundColor Yellow }
+function New-TrCode { while ($codeSet.ContainsKey(('{0:D5}' -f $script:nextCode))) { $script:nextCode++ }; $c0 = '{0:D5}' -f $script:nextCode; $codeSet[$c0] = 1; $script:nextCode++; $c0 }
+$NEWTR = [ordered]@{}   # 이번에 코드를 새로 매긴 거래처 (키: 사업자번호|가게이름)
 # 이름 맞추기: 괄호·(주)·띄어쓰기·기호를 빼고 비교. '결제대행/가맹점' 모양이면 '/' 뒤 가맹점 이름끼리 비교(앞 결제대행 이름이 같아도 다른 가게)
 #  같음 = 100, 한쪽이 다른 쪽을 품음(2글자 이상) = 50+글자수, 겹친 글자가 4글자 이상이면서 짧은 이름의 60% 이상 = 겹친 글자수, 그 밖 = 0
 function NormNm($s) { ("$s" -replace '주식회사|\(주\)|㈜|\(재\)|\(사\)', '' -replace '[\s\(\)\[\]\-_/\.,·&]', '').ToLower() }
@@ -136,6 +152,12 @@ foreach ($d in $docs) { foreach ($it in $d['items']) {
     if (-not $best -and $trByBiz[$biz].Count -eq 1 -and "$($rc['name'])" -notmatch $PGRX -and "$($trByBiz[$biz][0][1])" -notmatch $PGRX) { $best = $trByBiz[$biz][0] }
     if ($best) { $trCd = $best[0]; $trNm = $best[1]; $newTr = $false }
   }
+  # 새 거래처: 코드를 매겨 전표에 넣고 '새거래처' 업로드 파일에도 같은 코드로 넣음 (같은 가게가 여러 번 나오면 같은 코드)
+  if ($newTr -and $null -ne $nextCode -and $biz.Length -eq 10) {
+    $nk = "$biz|$(NormNm (ShopPart $rc['name']))"
+    if (-not $NEWTR.Contains($nk)) { $nm0 = "$($rc['name'])".Trim(); if ($nm0.Length -gt 60) { $nm0 = $nm0.Substring(0, 60) }; $NEWTR[$nk] = [pscustomobject]@{ 코드 = (New-TrCode); 이름 = $nm0; 사업자번호 = $biz; 대표자 = "$($rc['ceo'])".Trim(); 주소 = "$($rc['addr'])".Trim(); 전화 = "$($rc['tel'])".Trim() } }
+    $trCd = $NEWTR[$nk].코드; $trNm = $NEWTR[$nk].이름
+  }
   # 대리운전·택시는 적요 '_#' 앞에 '교통비'를 넣음(예: 고객응대 교통비_#하나8508, 2026-11-13 사용자 지정). 이미 '교통비'가 있으면 그대로
   $tail = ''; if (($use -match '대리' -or $desc -match '대리|택시' -or "$($rc['name'])" -match '대리|택시') -and $desc -notmatch '교통비') { $tail = ' 교통비' }
   $suffix = "$tail`_#$co$l4"; $rmk = "$desc".Trim(); if (($rmk + $suffix).Length -gt 80) { $rmk = $rmk.Substring(0, 80 - $suffix.Length).Trim() }; $rmk = $rmk + $suffix
@@ -161,7 +183,16 @@ foreach ($v in $VOU) {
   $ln++; $c = $base.Clone(); $c.MENU_LN_SQ = $ln; $c.DRCR_FG = '4'; $c.ACCT_CD = '2530000'; $c.TR_CD = $CARD[$v.카드사][0]; $c.TR_NM = $CARD[$v.카드사][1]; $c.ACCT_AM = $v.합계
   [void]$LINES.Add($c)
 }
-foreach ($v in ($VOU | Where-Object 새거래처)) { [void]$CHK.Add([pscustomobject]@{ 문서 = $v.문서; 내용 = $v.내용; 확인 = "새 거래처: '$($v.가맹점)' 사업자번호 $($v.사업자번호) — 1~11월 전표에 없음(거래처코드 비움). 아마란스에 거래처 등록 후 코드 넣기" }) }
+if ($NEWTR.Count) {
+  $cds = @($NEWTR.Values | ForEach-Object { $_.코드 })
+  $CHK.Insert(0, [pscustomobject]@{ 문서 = '(전체)'; 내용 = "새 거래처 $($NEWTR.Count)곳 먼저 등록"; 확인 = "전표 올리기 전에 '지출결의_새거래처_$(Get-Date -Format 'yyyyMMdd').xlsx'를 아마란스 회계관리 > 회계기초정보관리 > 거래처/계좌/카드관리 > 거래처엑셀업로드에서 먼저 등록(기능모음 > 파일업로드 → 변환하기). 코드 $($cds[0])~$($cds[-1]). 등록 후 일반거래처등록에서 코드가 파일과 같은지 확인(다르면 전표 파일 코드도 고쳐야 함)" })
+}
+foreach ($v in ($VOU | Where-Object 새거래처)) {
+  $msg = if ($v.거래처코드) { "새 거래처: '$($v.가맹점)' 사업자번호 $($v.사업자번호) — 아마란스에 없음 → 코드 $($v.거래처코드)로 새로 매김('새거래처' 파일로 먼저 등록)" }
+         elseif ($master.Count) { "새 거래처: '$($v.가맹점)' — 사업자번호가 없어 코드를 못 매김. 아마란스에 직접 등록 후 코드 넣기" }
+         else { "새 거래처: '$($v.가맹점)' 사업자번호 $($v.사업자번호) — 아마란스 거래처 목록을 못 받아 거래처코드 비움. 아마란스에 거래처 등록 후 코드 넣기" }
+  [void]$CHK.Add([pscustomobject]@{ 문서 = $v.문서; 내용 = $v.내용; 확인 = $msg })
+}
 foreach ($v in ($VOU | Where-Object { -not $CARD.ContainsKey("$($_.카드사)") })) { [void]$CHK.Add([pscustomobject]@{ 문서 = $v.문서; 내용 = $v.내용; 확인 = "모르는 카드사 '$($v.카드사)' — 거래처코드를 못 넣었습니다. 카드사 코드를 알려주세요(기업 99706 / 경남 99709 / 농협 99708 / 현대 99903 / 하나 99905 / 국민 99701)" }) }
 foreach ($v in ($VOU | Where-Object { $_.참고 })) { [void]$CHK.Add([pscustomobject]@{ 문서 = $v.문서; 내용 = $v.내용; 확인 = $v.참고 }) }
 foreach ($v in ($VOU | Where-Object { $_.프로젝트근거 -notlike '지출결의서 프로젝트*' })) { [void]$CHK.Add([pscustomobject]@{ 문서 = $v.문서; 내용 = $v.내용; 확인 = "프로젝트 $($v.프로젝트): $($v.프로젝트근거)" }) }
@@ -190,6 +221,27 @@ try {
   if (Test-Path -LiteralPath $upload) { Remove-Item -LiteralPath $upload -Force }
   Move-Item -LiteralPath $tmpUp $upload -Force
 
+  # 새 거래처 업로드 엑셀 (아마란스 거래처엑셀업로드 양식: 1줄 이름 / 2줄 칸코드 / 3줄 설명 / 4줄부터 자료)
+  $newUp = Join-Path $OutDir "지출결의_새거래처_$stamp.xlsx"
+  if (Test-Path -LiteralPath $newUp) { $bkD = Join-Path $OutDir '백업'; New-Item -ItemType Directory -Force $bkD | Out-Null; Move-Item -LiteralPath $newUp (Join-Path $bkD "지출결의_새거래처_$($stamp)_$(Get-Date -Format 'HHmmss').xlsx") -Force }
+  if ($NEWTR.Count) {
+    if (-not (Test-Path -LiteralPath $TradeTemplate)) { throw "거래처 업로드 양식이 없습니다: $TradeTemplate" }
+    $tmpTr = Join-Path $work '새거래처_임시.xlsx'; if (Test-Path -LiteralPath $tmpTr) { Remove-Item -LiteralPath $tmpTr -Force }
+    $wbT = $xl.Workbooks.Open($TradeTemplate, 0, $true); $wbT.SaveAs($tmpTr, 51)
+    $shT = $wbT.Worksheets.Item(1); $mxT = $shT.UsedRange.Columns.Count; $colT = @{}
+    for ($ci = 1; $ci -le $mxT; $ci++) { $cd = "$($shT.Cells(2, $ci).Value2)".Trim(); if ($cd -and -not $colT.ContainsKey($cd)) { $colT[$cd] = $ci } }
+    $needT = 'CO_CD', 'TR_FG', 'TR_CD', 'TR_NM', 'ATTR_NM', 'CEO_NM', 'REG_NB', 'FOR_YN', 'DIV_ADDR1', 'TEL', 'USE_YN'
+    $missT = @($needT | Where-Object { -not $colT.ContainsKey($_) }); if ($missT.Count) { throw "거래처 양식에 칸이 없음: $($missT -join ', ')" }
+    $nT = $NEWTR.Count; $arrT = New-Object 'object[,]' $nT, $mxT; $i = 0
+    foreach ($t0 in $NEWTR.Values) {
+      $vals = @{ CO_CD = '1000'; TR_FG = '1'; TR_CD = $t0.코드; TR_NM = $t0.이름; ATTR_NM = $t0.이름; CEO_NM = $t0.대표자; REG_NB = $t0.사업자번호; FOR_YN = '0'; DIV_ADDR1 = $t0.주소; TEL = $t0.전화; USE_YN = '1' }
+      foreach ($k in $vals.Keys) { if ("$($vals[$k])") { $arrT[$i, ($colT[$k] - 1)] = [string]$vals[$k] } }; $i++
+    }
+    $rgT = $shT.Range($shT.Cells(4, 1), $shT.Cells(3 + $nT, $mxT)); $rgT.NumberFormat = '@'; $rgT.Value2 = $arrT
+    $wbT.Save(); $wbT.Close($false)
+    Move-Item -LiteralPath $tmpTr $newUp -Force
+  }
+
   # 검토 엑셀
   $wb = $xl.Workbooks.Add(); while ($wb.Worksheets.Count -lt 3) { [void]$wb.Worksheets.Add([Type]::Missing, $wb.Worksheets.Item($wb.Worksheets.Count)) }
   function Fill($s, $name, $hdr, $rows) {
@@ -213,3 +265,4 @@ try {
 "전표 $($VOU.Count)장 ($($LINES.Count)줄) / 부가세대급금 $(@($VOU | Where-Object 부가세줄).Count)장 / 뺀 것 $($SKIP.Count)건 / 확인할 것 $($CHK.Count)건"
 "차변 합계 {0:N0} / 대변 합계 {1:N0}" -f (($LINES | Where-Object { $_.DRCR_FG -eq '3' } | ForEach-Object { $_.ACCT_AM } | Measure-Object -Sum).Sum), (($LINES | Where-Object { $_.DRCR_FG -eq '4' } | ForEach-Object { $_.ACCT_AM } | Measure-Object -Sum).Sum)
 "업로드: $upload"; "검토: $review"
+if ($NEWTR.Count) { "새 거래처 $($NEWTR.Count)곳 (코드 $(@($NEWTR.Values)[0].코드)~$(@($NEWTR.Values)[-1].코드)): $newUp  ← 전표보다 먼저 아마란스 거래처엑셀업로드로 등록" }

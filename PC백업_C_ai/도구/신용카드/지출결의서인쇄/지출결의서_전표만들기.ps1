@@ -174,7 +174,7 @@ Close-Tab $tab.id
 
 # ── 2단계: 지출내역·영수증 읽기 ──
 ''
-Say '[1/4] 지출결의서에서 지출내역과 영수증을 읽는 중...'
+Say '[1/5] 지출결의서에서 지출내역과 영수증을 읽는 중...'
 $dataFile = Join-Path $cardDir '자료.json'
 if (Test-Path $dataFile) { Copy-Item $dataFile (Join-Path $cardDir "자료_백업_$stamp.json") -Force }
 & "$S\지출결의_카드자료.ps1"
@@ -182,7 +182,7 @@ if (-not (Test-Path $dataFile)) { Die '지출내역을 읽지 못했습니다.' 
 
 # ── 3단계: 국세청 사업자 상태 (기존 것과 합치기) ──
 ''
-Say '[2/4] 국세청에서 가맹점 사업자 상태를 조회하는 중...'
+Say '[2/5] 국세청에서 가맹점 사업자 상태를 조회하는 중...'
 $bizFile = Join-Path $cardDir '사업자상태.csv'
 $old = @()
 if (Test-Path $bizFile) { $old = @(Import-Csv $bizFile -Encoding UTF8); Copy-Item $bizFile (Join-Path $cardDir "사업자상태_백업_$stamp.csv") -Force }
@@ -201,16 +201,19 @@ if (Test-Path $bizFile) {
 
 # ── 4단계: 전표 만들기 ──
 ''
-Say '[3/4] 자동전표를 만드는 중...'
+Say '[3/5] 아마란스 거래처 목록을 받는 중... (새 거래처 코드 매기기용)'
+try { & "$S\거래처목록_받기.ps1" } catch { Say "   거래처 목록을 못 받았습니다: $($_.Exception.Message) — 새 거래처 코드는 비워 둡니다" 'Yellow' }
+''
+Say '[4/5] 자동전표를 만드는 중...'
 & "$S\지출결의_카드자동전표.ps1" -OutDir $outDir
 
 # ── 5단계: 카드 코드 점검 ──
 ''
-Say '[4/4] 카드 거래처코드를 점검하는 중...'
+Say '[5/5] 카드 거래처코드를 점검하는 중...'
 & "$S\카드코드_점검.ps1"
 
 ''
-$made = Get-ChildItem $outDir -Filter '지출결의_카드자동전표_*.xlsx' | Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-10) } | Sort-Object LastWriteTime -Descending
+$made = Get-ChildItem $outDir -Filter '지출결의_*.xlsx' | Where-Object { $_.Name -match '^지출결의_(카드자동전표|새거래처)_' } | Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-10) } | Sort-Object LastWriteTime -Descending
 Say '다 됐습니다.' 'Green'
 $made | ForEach-Object { "   $($_.Name)" }
 Start-Process $outDir

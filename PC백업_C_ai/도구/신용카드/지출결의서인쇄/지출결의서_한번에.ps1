@@ -126,7 +126,7 @@ $sel | ForEach-Object { "   $($_.DOC_NO)  $($_.DOC_TITLE)" }
 
 $step = 0; $total = 0
 if ($wantPrint) { $total += 2 }
-if ($wantVou) { $total += 4 }
+if ($wantVou) { $total += 5 }
 $done = @()
 
 # ── 종이로 뽑기 ──
@@ -176,14 +176,19 @@ if ($wantVou) {
   }
 
   ''
+  $step++; Say "[$step/$total] 아마란스 거래처 목록을 받는 중... (새 거래처 코드 매기기용)"
+  try { & "$S\거래처목록_받기.ps1" } catch { Say "   거래처 목록을 못 받았습니다: $($_.Exception.Message) — 새 거래처 코드는 비워 둡니다" 'Yellow' }
+
+  ''
   $step++; Say "[$step/$total] 자동전표를 만드는 중..."
   & "$S\지출결의_카드자동전표.ps1" -OutDir $outDir
 
   ''
   $step++; Say "[$step/$total] 카드 거래처코드를 점검하는 중..."
   & "$S\카드코드_점검.ps1"
-  $made = @(Get-ChildItem $outDir -Filter '지출결의_카드자동전표_*.xlsx' | Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-15) } | ForEach-Object { $_.Name })
+  $made = @(Get-ChildItem $outDir -Filter '지출결의_*.xlsx' | Where-Object { $_.Name -match '^지출결의_(카드자동전표|새거래처)_' } | Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-15) } | ForEach-Object { $_.Name })
   $done += "카드 자동전표를 만들었습니다:`n  " + ($made -join "`n  ")
+  if ($made -match '새거래처') { $done += "※ 새 거래처가 있습니다. 전표를 올리기 전에 지출결의_새거래처 파일을 먼저 아마란스 [거래처엑셀업로드]에서 파일업로드 → 변환하기 하세요." }
 }
 
 ''
