@@ -665,7 +665,7 @@ try {
   # 일별마감(예: 2609 시트): 9월 출하 / 전월 출하(9월 매출) / 반품·불량(-) / 단가 소급 / 10월 이월(매출 제외) / 불량반출(참고만). 소계 줄(날짜·품번 없음) 제외
   $mNo = $closeYM % 100; $nextNo = $mNo % 12 + 1; $mLab = "$($mNo)월"; $nLab = "$($nextNo)월"
   $pdfCustK = @{}; for ($r = 2; $r -le $last; $r++) { if ($pdf[$lots[$r]]) { $pdfCustK[(& $kNorm $v[$r,$C['고객사']])] = $true } }
-  $daily = @(); $dSheet = "$($closeYM - 200000)"
+  $daily = @(); $dailyBelow = @(); $dSheet = "$($closeYM - 200000)"
   $dPath = "$base\$($yy)년 일별마감list.xlsx"; if (-not (Test-Path $dPath)) { $dPath = "$(@(Get-ChildItem $base -File | ? { $_.Name -match '일별마감' -and $_.Extension -match '^\.xls' -and $_.Name -notmatch '^~\$' })[0].FullName)" }
   if ($dPath -and (Test-Path $dPath)) {
     $wbD = $xl.Workbooks.Open($dPath, 0, $true); $sD = $wbD.Worksheets.Item($dSheet); $dn = $sD.UsedRange.Rows.Count
@@ -673,9 +673,18 @@ try {
     $dHdr = $sD.Range("A1:T1").Value2; $dCarryC = $null; for ($j = 1; $j -le 20; $j++) { if (("$($dHdr[1,$j])" -replace '\s', '') -eq '매출이월여부') { $dCarryC = $j } }
     $dv = $sD.Range("A1:$(if ($dCarryC -and $dCarryC -gt 9) { $sD.Cells(1,$dCarryC).Address($false,$false) -replace '\d', '' } else { 'I' })$dn").Value2; $dfm = $sD.Range("H1:H$dn").Formula; $wbD.Close($false)
     # 고객사별 하늘색 소계 줄(=SUM(H a:H b)) 범위 = 이번 달 매출(세금계산서와 같음). 소계가 있는 고객사의 범위 밖 줄은 비고가 없어도 이월 (사용자 확인 2026-10-29)
+    # 총합계 줄 = 고객사 소계들을 쉼표로 더한 SUM(예: =SUM(H6,H21,…,H629), 1·2월은 끝에 '-1'). 그 아래는 따로 만든 표(출하 대기·이월 메모, 동림 이동현황 등)라 매출 아님 → 읽지 않음
+    # (사용자 2026-11-26: "엑셀 밑에 표 만들어진 거면 에러 아님". 예: 7월 부경·벽진, 6월 벽진이 위쪽 줄과 아래 표에 두 번 있어 매출이 두 배로 잡혔음)
+    $gtRow = 0; $gtN = 0
+    for ($i = 2; $i -le $dn; $i++) { if ("$($dfm[$i,1])" -match '^=SUM\((H\d+(?:,H\d+)+)\)') { $n0 = ($matches[1] -split ',').Count; if ($n0 -ge 8 -and $n0 -gt $gtN) { $gtN = $n0; $gtRow = $i } } }
+    if ($gtRow) { "일별마감 $dSheet 시트 총합계 줄: $gtRow 행 (소계 $gtN 개를 더함) → 그 아래 따로 만든 표는 매출에서 뺌" }
     $covD = @{}; $subK = @{}; $subA = @{}   # $subA[소계 줄] = 범위 첫 줄 (거래처 이름)
-    for ($i = 2; $i -le $dn; $i++) { if ("$($dfm[$i,1])" -match '^=SUM\(H(\d+):H(\d+)\)$') { $a1 = [int]$matches[1]; $b1 = [int]$matches[2]; $subA[$i] = $a1; for ($k1 = $a1; $k1 -le $b1; $k1++) { $covD[$k1] = $i }; $subK[(& $kNorm $dv[$a1,2])] = $true } }
+    for ($i = 2; $i -le $dn; $i++) { if ($gtRow -and $i -gt $gtRow) { break }; if ("$($dfm[$i,1])" -match '^=SUM\(H(\d+):H(\d+)\)$') { $a1 = [int]$matches[1]; $b1 = [int]$matches[2]; $subA[$i] = $a1; for ($k1 = $a1; $k1 -le $b1; $k1++) { $covD[$k1] = $i }; $subK[(& $kNorm $dv[$a1,2])] = $true } }
     for ($i = 2; $i -le $dn; $i++) {
+      if ($gtRow -and $i -gt $gtRow) {   # 총합계 줄 아래 표 → 매출 아님 (어느 거래처 줄이 빠졌는지만 기록, 국내매출 참고 문구로)
+        $cB = "$($dv[$i,2])".Trim(); $aB = [double](Num $dv[$i,8]); if ($cB -and $aB) { $dailyBelow += [pscustomobject]@{ R = $i; Key = (& $kNorm $cB); A = $aB } }
+        continue
+      }
       $c0 = "$($dv[$i,2])".Trim(); $d0 = $dv[$i,1]; $pn = "$($dv[$i,4])".Trim()
       # 소계 범위 안인데 업체명·출하일·품번이 빈 금액 줄(예: 10월 현대로템 97행 '24년 코레일 EMU-260 고속전철 78량' 18,100,000원) = 그 소계 거래처의 이번 달 매출 (2026-11-12)
       $inSubNo = (-not $c0) -and $covD[$i] -and -not ($d0 -is [double]) -and [double](Num $dv[$i,8]) -ne 0
@@ -780,6 +789,7 @@ try {
     $prevA = & $sumCat $dy @('prev') 'A'; $retA = & $sumCat $dy @('ret') 'A'; $retroA = & $sumCat $dy @('retro') 'A'; $carryA = & $sumCat $dy @('carry') 'A'; $nodA = & $sumCat $dy @('nodate') 'A'
     $saleA = (& $sumCat $dy @('cur') 'A') + $prevA + $retA + $retroA + $nodA
     $hasDay = @($dy | ? { $_.Cat -ne 'bad' }).Count -gt 0
+    $blw = @($dailyBelow | ? { $_.Key -eq $g.Key }); if ($blw.Count) { $note += "일별마감 {0} 시트 총합계 줄 아래 따로 만든 표(출하 대기·이월 메모)의 {1}줄 {2:N0}원({3}행)은 매출이 아니라 셈에서 뺌 (참고)" -f $mLab, $blw.Count, [double](($blw | measure A -Sum).Sum), ((@($blw | % R)) -join ', ') }
     if ($hasDay) {
       $ks.Cells($krow, 4).Value2 = $shipQ; $ks.Cells($krow, 5).Value2 = $shipA
       foreach ($pair in @(@(8, $prevA), @(9, $retA), @(10, $retroA), @(11, -$carryA))) { if ($pair[1]) { $ks.Cells($krow, $pair[0]).Value2 = [double]$pair[1] } }
