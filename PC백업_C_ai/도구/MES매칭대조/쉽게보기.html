@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>MES매칭 대조 쉽게 보기</title>
+<style>
+@page { size: A4; margin: 10mm 9mm 11mm 9mm; @bottom-center { content: counter(page) " / " counter(pages); font: 8pt "Malgun Gothic"; color: #777; } }
+* { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: "Malgun Gothic", sans-serif; font-size: 9pt; color: #1e2a2a; margin: 0; line-height: 1.4; word-break: keep-all; overflow-wrap: anywhere; }
+h1 { font-size: 15pt; margin: 0 0 2px; color: #0f3d3e; }
+.sub { color: #666; font-size: 8.2pt; margin: 0 0 6px; }
+.how { border: 1.5px solid #0f3d3e; border-radius: 6px; padding: 6px 10px; background: #f6faf9; margin-bottom: 6px; }
+.how p { margin: 2px 0; }
+.legend span { display: inline-block; margin: 2px 6px 2px 0; }
+.cnt { display: flex; gap: 5px; margin: 5px 0 2px; }
+.cnt div { flex: 1; border-radius: 5px; padding: 4px 6px; font-size: 8pt; text-align: center; }
+.cnt b { display: block; font-size: 13pt; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+th, td { border: 1px solid #c3cccb; padding: 4px 5px; vertical-align: top; }
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+th { background: #0f3d3e; color: #fff; font-size: 8.8pt; }
+td.t b { font-size: 9.2pt; }
+td.ans { font-size: 8.8pt; }
+tr.grp td { font-weight: 700; font-size: 10pt; padding: 5px 8px; border-left: 6px solid; }
+tr.g1 td { background: #fdecea; color: #a51d18; border-left-color: #c0231d; }
+tr.g2 td { background: #fff3e0; color: #a35200; border-left-color: #d97b00; }
+tr.g3 td { background: #fff9d6; color: #7a6000; border-left-color: #d4b000; }
+tr.g4 td { background: #e8f5e9; color: #1b6e2a; border-left-color: #2e8b3e; }
+tr.g5 td { background: #f0f0f0; color: #444; border-left-color: #8a8a8a; }
+.b { display: inline-block; border-radius: 4px; padding: 1px 6px; font-weight: 700; font-size: 8.4pt; margin-bottom: 2px; }
+.b1 { background: #c0231d; color: #fff; } .b2 { background: #d97b00; color: #fff; } .b3 { background: #d4b000; color: #fff; } .b4 { background: #2e8b3e; color: #fff; } .b5 { background: #8a8a8a; color: #fff; }
+.mine { background: #f3f8ff; } .their { background: #fbf7ff; } .led { background: #fffdf3; }
+.num { font-weight: 700; white-space: nowrap; }
+.neg { color: #c0231d; }
+.todo { display: block; margin-top: 3px; padding-top: 3px; border-top: 1px dashed #bbb; }
+.small { font-size: 7.9pt; color: #555; }
+</style></head><body>
+
+<h1>내 파일 vs 그쪽 파일 — 무엇이 다르고 무엇이 정답인가 (2026년 1~10월)</h1>
+<p class="sub">내 파일 = 내 월마감 결과(기초자료 1~10월) · 그쪽 파일 = 국내·해외영업 MES매칭 통합(2026-01~10).xlsx · 장부 = 계정별원장(회계에서 실제 매출로 잡은 금액)</p>
+
+<div class="how">
+  <p><b>정답을 정한 기준</b>: <b>장부(계정별원장)와 같은 쪽</b>을 정답으로 봤습니다. 장부에 없는 것(인보이스 번호, 라인별 금액)은 MES 출고·회계 면장 원본으로 판단했습니다.</p>
+  <p><b>전체</b>: 거래처×월 293칸 중 <b>239칸</b>, 해외 인보이스 676건 중 <b>599건</b>은 내 파일 = 그쪽 파일 = 장부로 <b>똑같습니다</b>. 아래는 다른 것만 모았습니다.</p>
+  <div class="cnt">
+    <div style="background:#fdecea"><b style="color:#c0231d">5</b>그쪽이 맞음<br>내 파일 고칠 것</div>
+    <div style="background:#fff3e0"><b style="color:#d97b00">5</b>장부 기준이면 그쪽<br>기준을 정할 것</div>
+    <div style="background:#fff9d6"><b style="color:#a88a00">2</b>확인 필요<br>장부 ≠ 세금계산서</div>
+    <div style="background:#e8f5e9"><b style="color:#2e8b3e">2</b>내 파일이 맞음<br>그쪽에 알릴 것</div>
+    <div style="background:#f0f0f0"><b style="color:#666">6</b>둘 다 맞음<br>보는 범위·적는 방법만 다름</div>
+  </div>
+</div>
+
+<table>
+<colgroup><col style="width:17%"><col style="width:22%"><col style="width:22%"><col style="width:14%"><col style="width:25%"></colgroup>
+<thead><tr><th>무엇이 다른가</th><th>내 파일에는</th><th>그쪽 파일에는</th><th>장부에는</th><th>정답 / 할 일</th></tr></thead>
+<tbody>
+
+<tr class="grp g1"><td colspan="5">① 그쪽이 맞음 — 내 파일을 고칠 것</td></tr>
+<tr>
+  <td class="t"><b>1. 아트라스콥코 1~5월</b></td>
+  <td class="mine">1~5월 <b>국내매출 표에 없음(0원)</b>.<br>'전자세금계산서 금액 오류' 시트에만 나옴. (6~10월은 국내매출에 있음)</td>
+  <td class="their">1월 <span class="num">87,806,291</span> · 2월 <span class="num">21,526,400</span> · 3월 <span class="num">64,579,200</span> · 4월 <span class="num">43,052,800</span> · 5월 <span class="num">64,579,200</span><br>(인보이스 DSM2601-AT01 등 + 작년 누락분 DSM2506-AT01)</td>
+  <td class="led">그쪽과 같음<br>5개월 합 <span class="num">281,543,891</span></td>
+  <td class="ans"><span class="b b1">그쪽이 맞음</span><br>1~5월 아트라스 매출이 내 파일에 빠져 있음.<span class="todo">할 일: 도구를 고쳐 1~5월 국내매출에 아트라스를 넣고 다시 만들기</span></td>
+</tr>
+<tr>
+  <td class="t"><b>2. SAM 2월</b><br><span class="small">DSM2601-SM01</span></td>
+  <td class="mine">2월 SAM <span class="num">28,772,082</span> (DSM2602-SM01만)<br>DSM2601-SM01은 <b>1월 이월매출</b>에만 있고(BL 2/5) <b>2월 매출에 안 들어감</b></td>
+  <td class="their">2월 SAM <span class="num">85,972,806</span><br>= DSM2602-SM01 28,772,082 + <b>DSM2601-SM01 57,200,724</b></td>
+  <td class="led">2월 SAM <span class="num">85,972,806</span><br>(그쪽과 같음)</td>
+  <td class="ans"><span class="b b1">그쪽이 맞음</span><br>1월에서 넘긴 SM01을 2월에 받지 못함.<span class="todo">할 일: 2월 회계 파일 26.02(NEW)에 SM01 줄이 있는지 보고 2월 해외매출에 넣기</span></td>
+</tr>
+<tr>
+  <td class="t"><b>3. EMERSON</b><br><span class="small">DSM2603-EM04</span></td>
+  <td class="mine"><b>두 번</b> 있음<br>3월 <span class="num">988,729</span> (BL 3/27)<br>4월 <span class="num">1,004,681</span> (BL 4/1, MES 4월 출고 없음)<br>같은 면장 41072-26-700108X</td>
+  <td class="their">3월 <span class="num">988,729</span> <b>한 번만</b></td>
+  <td class="led">3월: 같음<br>4월 <span class="num">140,395,651</span> = 그쪽 (EM04 없음)</td>
+  <td class="ans"><span class="b b1">그쪽이 맞음</span><br>4월 1,004,681원은 중복.<span class="todo">할 일: 4월 회계 파일에 EM04가 또 적혀 있는지 확인 → 4월에서 빼기</span></td>
+</tr>
+<tr>
+  <td class="t"><b>4. 맥시스 · 영창이엔지 3월</b></td>
+  <td class="mine">맥시스 3월 <span class="num">91,300,000</span> (3월 출하 166개를 3월 매출로) → 4월에 같은 출하분 <span class="num">69,300,000</span>을 <b>또</b> 매출로<br>영창 3월 <span class="num">4,810,000</span> + 4월 또</td>
+  <td class="their">맥시스 3월 <b>0원</b> → 4월 <span class="num">69,300,000</span> · 5월 <span class="num">22,000,000</span><br>영창 3월 <b>0원</b> → 4월 <span class="num">4,810,000</span></td>
+  <td class="led">3월 <b>0원</b><br>(그쪽과 같음, 계산서는 4·5월)</td>
+  <td class="ans"><span class="b b1">그쪽이 맞음</span><br>3월에 출고만 했고 매출은 4·5월. 내 3월은 이중 계산.<span class="todo">할 일: 3월 일별마감 맥시스·영창 줄에 '4월이월·5월이월' 표시 확인 → 3월 매출에서 빼기</span></td>
+</tr>
+<tr>
+  <td class="t"><b>5. 신코 10월말 이월</b><br><span class="small">DSM2610-SK02 (10/30 출고 97개)</span></td>
+  <td class="mine">10월 MES 시트에 'BL=이월' 표시만 있고 <b>이월매출 표에는 없음</b> (10월 회계 파일에 아직 없어서)</td>
+  <td class="their">10월말 이월 <span class="num">193,090,760</span> (11월 매출)</td>
+  <td class="led">10월엔 없음 (11월 매출 예정) — 같음</td>
+  <td class="ans"><span class="b b1">그쪽이 맞음</span><br>이월 목록에 들어가야 함.<span class="todo">할 일: 도구를 고쳐 회계에 없고 MES에만 있는 이월도 이월매출 표에 넣기</span></td>
+</tr>
+
+<tr class="grp g2"><td colspan="5">② 장부 기준이면 그쪽 — 국내 매출을 '일별마감'으로 볼지 '세금계산서'로 볼지 정할 것</td></tr>
+<tr>
+  <td class="t"><b>6. LS엠트론 6월</b></td>
+  <td class="mine"><span class="num">41,574,519</span><br>(일별마감 기준. 11/26에 "일별마감이 맞다"고 정함)</td>
+  <td class="their"><span class="num">39,408,336</span><br>= 제품 41,574,519 + 불량환입 <span class="neg">-2,166,183</span></td>
+  <td class="led"><span class="num">39,408,336</span><br>= 세금계산서</td>
+  <td class="ans"><span class="b b2">장부 기준이면 그쪽</span><br>-2,166,183원을 6월에 빼느냐의 차이.<span class="todo">할 일: 국내 기준을 계산서(장부)로 바꿀지 결정</span></td>
+</tr>
+<tr>
+  <td class="t"><b>7. 명화공업 6월</b></td>
+  <td class="mine"><span class="num">36,448,880</span><br>(6월 명화 이월 건 24,967,800 뺌, D1)</td>
+  <td class="their"><span class="num">61,416,680</span><br>= 제품 86,832,460 + 수정품 24,967,800 + 불량환입 -52,709,800 + 단가소급 2,326,220</td>
+  <td class="led"><span class="num">61,416,680</span><br>= 세금계산서</td>
+  <td class="ans"><span class="b b2">장부 기준이면 그쪽</span><br>24,967,800원(수정품)이 6월 매출.<span class="todo">할 일: 6월 매출로 보고 D1 마무리할지 결정</span></td>
+</tr>
+<tr>
+  <td class="t"><b>8. 벽진 2월</b></td>
+  <td class="mine"><span class="num">16,108,800</span> (일별마감)</td>
+  <td class="their"><span class="num">10,739,200</span></td>
+  <td class="led"><span class="num">10,739,200</span><br>= 세금계산서</td>
+  <td class="ans"><span class="b b2">장부 기준이면 그쪽</span><br>5,369,600원은 일별마감에만 있고 계산서·장부엔 없음.<span class="todo">할 일: 2월 일별마감 벽진 줄 확인</span></td>
+</tr>
+<tr>
+  <td class="t"><b>9. 피에스텍 1월</b></td>
+  <td class="mine"><span class="num">22,617,900</span> (1월 출하 전부)</td>
+  <td class="their"><span class="num">11,038,500</span></td>
+  <td class="led"><span class="num">11,038,500</span><br>= 세금계산서</td>
+  <td class="ans"><span class="b b2">장부 기준이면 그쪽</span><br>나머지 11,579,400원은 2·3월에 나눠 청구됨.<span class="todo">할 일: 계산서 기준으로 맞출지 결정</span></td>
+</tr>
+<tr>
+  <td class="t"><b>10. 라인별 금액</b><br><span class="small">사형·자동·금형·가공1~3</span></td>
+  <td class="mine"><b>MES 금액</b>(내부 고정환율 약 1,350원)을 라인별로 나눔 → 라인 합 ≠ 매출<br>예) Allison DSM2601-AL01 매출 570,705,764인데 라인 합 522,872,784</td>
+  <td class="their"><b>확정 매출 원화</b>를 MES 주조비·가공비 비율로 나눔 → 라인 합 = 매출</td>
+  <td class="led">라인별 금액 없음</td>
+  <td class="ans"><span class="b b2">그쪽 방식이 맞음</span><br>매출을 라인별로 보려면 확정 원화로 나눠야 함 (합계가 같은 192칸 중 20칸만 같음).<span class="todo">할 일: 도구를 그쪽 방식으로 고칠지 결정</span></td>
+</tr>
+
+<tr class="grp g3"><td colspan="5">③ 확인 필요 — 세금계산서와 장부가 서로 다름 (회계에 물어볼 것)</td></tr>
+<tr>
+  <td class="t"><b>11. 현대로템 1월</b></td>
+  <td class="mine"><span class="num">449,304,114</span><br>= 1월 세금계산서 6매 449,304,115와 같음<br>(방산 일별마감 중 MES에 없는 140,621,090을 '단가 소급'으로 봄)</td>
+  <td class="their"><span class="num">327,185,800</span></td>
+  <td class="led"><span class="num">327,185,801</span></td>
+  <td class="ans"><span class="b b3">확인 필요</span><br>장부 기준이면 그쪽. 하지만 1월에 발행된 계산서 중 122,118,313원이 장부 1월에 없음.<span class="todo">할 일: 회계에서 이 금액을 작년(2025년) 매출로 잡았는지 확인</span></td>
+</tr>
+<tr>
+  <td class="t"><b>12. 현대로템 3월 · 8월</b></td>
+  <td class="mine">3월 <span class="num">174,479,825</span><br>8월 <span class="num">419,917,625</span><br>(= 세금계산서, 방산 반품 <span class="neg">-18,502,775</span> 들어 있음)</td>
+  <td class="their">3월 <span class="num">192,982,600</span><br>8월 <span class="num">438,420,400</span></td>
+  <td class="led">3월 <span class="num">192,982,601</span><br>8월 <span class="num">438,420,400</span></td>
+  <td class="ans"><span class="b b3">확인 필요</span><br>장부 기준이면 그쪽. 반품 수정세금계산서(-18,502,775, 두 번)가 장부에 안 들어간 것 같음.<span class="todo">할 일: 회계에 반품 계산서 반영 여부 확인</span></td>
+</tr>
+
+<tr class="grp g4"><td colspan="5">④ 내 파일이 맞음 — 그쪽 파일 담당자에게 알려 줄 것</td></tr>
+<tr>
+  <td class="t"><b>13. 신코 4월 SK02 · SK03</b></td>
+  <td class="mine">SK02 = <span class="num">159,661,605</span> (면장 700274X, ¥17,245,240, MES 92개)<br>SK03 = <span class="num">58,838,348</span> (면장 700275X, ¥6,355,200, MES 16개)</td>
+  <td class="their">SK02 = <span class="num">58,838,348</span><br>SK03 = <span class="num">159,661,605</span><br>(MES SK02 92개를 인보이스 SK03에 붙임)</td>
+  <td class="led">4월 신코 합계만 있음<br>(합계는 둘 다 같음)</td>
+  <td class="ans"><span class="b b4">내 파일이 맞음</span><br>MES 출고Lot과 회계 면장 모두 SK02 = 92개 = 159,661,605원.<span class="todo">할 일: 그쪽 파일 SK02·SK03 바꿔 달라고 알리기</span></td>
+</tr>
+<tr>
+  <td class="t"><b>14. 인보이스 번호 표기</b></td>
+  <td class="mine">DSM2608-<b>AL01</b><br>코마츠 DSM<b>2608</b>-JS01·02, DSM<b>2609</b>-JS01·02</td>
+  <td class="their">DSM2608-<b>AL1</b><br>코마츠 DSM<b>2508</b>-JS01·02, DSM<b>2509</b>-JS01·02</td>
+  <td class="led">번호 없음<br>금액은 둘 다 같음</td>
+  <td class="ans"><span class="b b4">내 파일이 맞음</span><br>2026년 8·9월 출고라 2608·2609가 맞음(원래 자료의 오타를 고친 것). AL01은 11/25에 맞춘 번호.<span class="todo">할 일: 그쪽에 알리기 (금액 영향 없음)</span></td>
+</tr>
+
+</tbody></table>
+<table style="break-before:page">
+<colgroup><col style="width:17%"><col style="width:22%"><col style="width:22%"><col style="width:14%"><col style="width:25%"></colgroup>
+<thead><tr><th>무엇이 다른가</th><th>내 파일에는</th><th>그쪽 파일에는</th><th>장부에는</th><th>정답 / 할 일</th></tr></thead>
+<tbody>
+<tr class="grp g5"><td colspan="5">⑤ 둘 다 맞음 — 보는 범위나 적는 방법만 다름 (틀린 것 아님)</td></tr>
+<tr>
+  <td class="t"><b>15. 해외 관세·툴링·PPAP</b></td>
+  <td class="mine"><b>없음</b><br>내 해외매출은 회계 면장(수출 신고) 금액만 봄</td>
+  <td class="their">기타매출로 넣음<br>ALLISON 관세 <span class="num">3,982,432,527</span>(매달) · 툴링 531,435,580(1~5월)<br>MERCURY 툴링 220,789,488(1·8월) · POLARIS 툴링 42,674,312 · EMERSON 9,815,975 · BERGEN 4,000,000 · MEPPI 34,115,054(10월)</td>
+  <td class="led">그쪽과 같음<br>(장부엔 매출로 들어 있음)</td>
+  <td class="ans"><span class="b b5">둘 다 맞음</span><br>회사 매출 총액은 그쪽(장부). 내 표는 '수출 면장 매출'만 보는 표.<span class="todo">할 일: 월마감에 기타매출도 같이 볼지 결정</span></td>
+</tr>
+<tr>
+  <td class="t"><b>16. 신코 금형비 · 선급검사비</b></td>
+  <td class="mine"><b>없음</b> (회계 면장에 없는 항목)</td>
+  <td class="their">2월 금형중자 수정비 3,979,448<br>5월 선급검사비 17,216,412<br>8월 금형비 7,522,284 + 선급검사비 39,886,798</td>
+  <td class="led">그쪽과 같음</td>
+  <td class="ans"><span class="b b5">둘 다 맞음</span><br>15번과 같은 이유.<span class="todo">할 일: 15번과 함께 결정</span></td>
+</tr>
+<tr>
+  <td class="t"><b>17. 제품이 아닌 매출</b></td>
+  <td class="mine">일부러 뺌 (제품 매출만 대조)<br>알멕은 일별마감에 있는 일부만</td>
+  <td class="their">신우텍 스크랩·AL재 <span class="num">1,812,183,900</span>(매달)<br>알멕 외주가공비 150,488,590<br>STX엔진 1월 전년도(25년) 수정 <span class="num">420,000,000</span></td>
+  <td class="led">그쪽과 같음<br>(STX 420,000,000은 장부에만 있음)</td>
+  <td class="ans"><span class="b b5">둘 다 맞음</span><br>장부 매출엔 들어가지만 제품 매출 대조에선 빼는 게 맞음.<span class="todo">할 일: 따로 '기타' 목록으로 볼지 결정</span></td>
+</tr>
+<tr>
+  <td class="t"><b>18. Allison TA · Mercury PPAP 인보이스</b></td>
+  <td class="mine"><b>해외매출(제품)</b>로 넣음<br>예) DSM2604-AL2TA 6,524,438 · DSM2610-24 44,210,601</td>
+  <td class="their"><b>기타매출(PPAP·샘플·개발품)</b>로 넣음<br>금액은 같음</td>
+  <td class="led">구분 없음 (합계 같음)</td>
+  <td class="ans"><span class="b b5">둘 다 맞음</span><br>같은 돈을 다른 칸에 적은 것.<span class="todo">할 일: 이름 붙이는 방식만 맞추면 됨</span></td>
+</tr>
+<tr>
+  <td class="t"><b>19. 신코 불량대체-청구</b></td>
+  <td class="mine">인보이스 금액 그대로 한 줄<br>예) DSM2601-SK02 <span class="num">164,825,026</span></td>
+  <td class="their">제품 162,796,050 + 불량청구 2,028,976으로 <b>나눠 적음</b><br>(1~10월 불량청구 합 21,841,834)</td>
+  <td class="led">합계 같음</td>
+  <td class="ans"><span class="b b5">둘 다 맞음</span><br>합치면 똑같음.<span class="todo">할 일: 없음</span></td>
+</tr>
+<tr>
+  <td class="t"><b>20. 부서 나누기</b></td>
+  <td class="mine">신코·코마츠 = <b>해외매출</b>(수출 면장)<br>아트라스콥코 = <b>국내매출</b>(세금계산서)</td>
+  <td class="their">신코·코마츠 = <b>국내영업</b><br>아트라스콥코 = <b>해외영업</b></td>
+  <td class="led">거래처별 합계는 같음</td>
+  <td class="ans"><span class="b b5">둘 다 맞음</span><br>어느 팀이 담당하느냐(그쪽)와 어떤 서류로 파느냐(나)의 차이.<span class="todo">할 일: 없음</span></td>
+</tr>
+</tbody></table>
+
+<p class="small" style="margin-top:6px">자세한 칸별·인보이스별 목록은 엑셀 'C:\ai\매월마감\MES매칭 통합 ↔ 내 월마감 대조(2026-01~10).xlsx'에 있습니다.</p>
+</body></html>
