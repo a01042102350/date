@@ -109,13 +109,18 @@ function Test-HasName([string]$s) {
   foreach ($m in [regex]::Matches($s, '\(\s*([가-힣]{2,4})[\s,·/)]')) { if ($m.Groups[1].Value -notmatch "^($NOTNAME)$") { return $true } }   # '(정우석)', '(장성우,김항석)'
   return $false
 }
-# 적요 낱말 맞추기 (2026-11-27 사용자): ① 식대·식사는 영수증 거래 시간으로 오후 4시 전 = 중식대, 4시부터 = 석식대 ② 음료·음료수는 '음료대'
+# 적요 낱말 맞추기 (2026-11-27 사용자): ⓪ 야근식대 → 석식대, 주차비·전철비 → 교통비(항상) ① 식대·식사는 영수증 거래 시간으로 오후 4시 전 = 중식대, 4시부터 = 석식대 ② 음료·음료수는 '음료대'
 #  · 내용에 식사 낱말(중식·석식·식대·식사·저녁식대 등)이 하나면 그 낱말을 시간에 맞는 중식대/석식대로 바꿈. 중식·석식이 같이 있으면(여러 끼) 그대로, 조식은 그대로
 #  · 식사 낱말이 없어도 용도가 식대·식사면 뒤에 중식대/석식대를 붙임(예: 용도 '식대(영업)' + 내용 '고객업무협의' → '고객업무협의 석식대'). 영수증 시간이 없으면 안 바꿈
 #  · 음료·음료수(구매·구입·값·비)는 '음료대'로. 다과·간식·식사와 같이 산 건은 그대로
 function Fix-RemarkText([string]$desc, [string]$use, [string]$dtText) {
   $s = "$desc".Trim()
   $hh = $null; if ($dtText -match '\b(\d{1,2}):(\d{2})') { $hh = [int]$Matches[1] }
+  # 2026-11-27 사용자 '항상': 야근식대 → 석식대(시간 상관없이), 주차비 → 교통비
+  $night = ($s -match '야근\s?(?:식대|식사|석식대|석식|저녁)')
+  $s = $s -replace '야근\s?(?:식대|식사|석식대|석식|저녁)', '석식대'
+  $s = $s -replace '주차\s?(?:비|료|요금|대)', '교통비'
+  $s = $s -replace '(?:전철|지하철)\s?(?:비|료|요금|대)', '교통비'   # 2026-11-27 사용자: 전철비도 교통비
   $mealRx = '(?:점심|저녁|중식|석식)\s?(?:식대|식사)|중식대|석식대|식사대|중식|석식|식사|식대'
   $nonMeal = ($s -match '교통|택시|대리|주차|숙박|유류|주유|항공|렌트|통행') -or ("$use" -match '교통|유류|숙박|주차|항공|렌트')   # 택시·숙박 등에 들어간 '석식 후' 같은 말은 안 바꿈
   $drink = ($s -match '음료') -and ($s -notmatch '다과|간식|도시락|과자|디저트')
@@ -124,7 +129,7 @@ function Fix-RemarkText([string]$desc, [string]$use, [string]$dtText) {
     $s = $s -replace '(?:중식|석식|점심|저녁)\s?(?=음료)', ''
     $s = $s -replace '음료수?\s?(?:구매|구입|값|비|대)?', '음료대'
   }
-  elseif ($null -ne $hh -and -not $nonMeal -and $s -notmatch '조식|아침') {
+  elseif ($null -ne $hh -and -not $nonMeal -and -not $night -and $s -notmatch '조식|아침') {
     $want = $(if ($hh -lt 16) { '중식대' } else { '석식대' })
     $both = ($s -match '중식|점심') -and ($s -match '석식|저녁')
     if ($s -match $mealRx) { if (-not $both) { $s = ([regex]$mealRx).Replace($s, $want, 1); $s = $s -replace "$want\s*대", $want } }
