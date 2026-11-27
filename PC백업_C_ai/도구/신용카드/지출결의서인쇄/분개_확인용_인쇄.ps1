@@ -26,7 +26,8 @@ try {
   for ($i = 1; $i -le $rl - 1; $i++) { $dv = $rv[$i, 1]; $dk = $(if ($dv -is [double]) { [DateTime]::FromOADate($dv).ToString('yyyyMMdd') } else { ("$dv" -replace '\D', '') }); $docOf["$dk|$($rv[$i, 2])"] = ("$($rv[$i, 3])" -replace '^.*-', '') }
 
   # 정리
-  $head = @('날짜', '번호', '문서', '차대', '계정', '거래처', '사업자번호', '차변', '대변', '프로젝트', '부가세(세무·공급가액·카드)', '적요')
+  $head = @('날짜', '번호', '문서', '차대', '계정', '거래처', '사업자번호', '차변', '대변', '프로젝트/사용부서', '부가세(세무·공급가액·카드)', '적요')
+  $deptNmOf = @{}; $dfile = Join-Path $PSScriptRoot '부서코드.csv'; if (Test-Path -LiteralPath $dfile) { foreach ($q in (Import-Csv -LiteralPath $dfile -Encoding UTF8)) { $deptNmOf["$($q.부서코드)"] = "$($q.부서명)" } }
   $rowsOut = New-Object Collections.ArrayList; $blockEnd = New-Object Collections.ArrayList; $prevKey = ''; $sumD = 0; $sumC = 0; $nv = 0
   for ($r = 1; $r -le $nr; $r++) {
     $dt = G $r 'MENU_DT'; $sq = G $r 'MENU_SQ'; $key = "$dt|$sq"; $first = ($key -ne $prevKey)
@@ -35,6 +36,7 @@ try {
     $dr = G $r 'DRCR_FG'; $ac = G $r 'ACCT_CD'; $am = [double](G $r 'ACCT_AM')
     $trc = G $r 'TR_CD'; $trn = G $r 'TR_NM'; $tr = $(if ($trc) { "[$trc] $trn" } else { "(새 거래처) $trn" })
     $pj = G $r 'PJT_CD'; $vat = ''
+    if ($colOf.ContainsKey('CT_DEPT')) { $dpc = G $r 'CT_DEPT'; if ($dpc) { $pj = "$pj / 부서 $dpc $($deptNmOf[$dpc])".Trim(' ', '/') } }
     if ((G $r 'TAX_FG')) { $cn = G $r 'CT_NB'; $vat = "세무 $(G $r 'TAX_FG') / 공급가액 {0:N0} / 결제카드 {1}" -f [double](G $r 'SUP_AM'), $cn }
     if ($dr -eq '3') { $sumD += $am } else { $sumC += $am }
     [void]$rowsOut.Add(@(

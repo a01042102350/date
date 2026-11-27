@@ -8,7 +8,8 @@
   [string]$OutDir = "$env:USERPROFILE\Desktop\지출결의서\결과",
   [string]$VatBook = 'C:\ai\매월마감\국내자동전표\참고4.xlsx',          # 부가세 매입매출장: 결제카드 거래처코드·카드번호
   [string]$BizStatus = "$env:TEMP\카드전표\사업자상태.csv",          # 사업자상태_조회.ps1 결과(국세청 일반/간이)
-  [int]$StartNo = 3000                                              # 작성번호: 날짜마다 3000부터(손 전표·해외 1000·국내 2000과 안 겹치게)
+  [int]$StartNo = 3000,                                             # 작성번호: 날짜마다 3000부터(손 전표·해외 1000·국내 2000과 안 겹치게)
+  [string]$DeptFile = (Join-Path $PSScriptRoot '부서코드.csv')       # 아마란스 부서 코드표(부서목록_받기.ps1) → 사용부서(CT_DEPT)
 )
 # 지출결의서(법인카드) → 아마란스 자동전표처리(일반) 업로드 엑셀 + 검토 엑셀
 # 규칙(2026-11-13 사용자 지정 + 1~11월 실제 카드 전표):
@@ -51,7 +52,8 @@ if ((Test-Path -LiteralPath $TradeList) -and (Get-Item -LiteralPath $TradeList).
     $b = ("$($m.regNb)" -replace '\D', '')
     if ($b.Length -eq 10 -and $m.trCd -and "$($m.trCd)" -notmatch '^999' -and -not $seenTr.ContainsKey("$b|$($m.trCd)")) { $seenTr["$b|$($m.trCd)"] = 1; if (-not $trByBiz.ContainsKey($b)) { $trByBiz[$b] = New-Object Collections.ArrayList }; [void]$trByBiz[$b].Add(@("$($m.trCd)", "$($m.trNm)".Trim())) }
   }
-  $lastReg = $master | Where-Object { "$($_.trCd)" -match '^\d{5}$' } | Sort-Object { "$($_.insertDt)" } -Descending | Select-Object -First 1
+  # 가장 최근 등록(같은 시각에 여러 곳이면 그중 큰 코드). 2026-11-27부터 아마란스가 업로드 거래처에 00001~ 로 직접 매기므로 다음은 00008~ 예상(틀려도 '4. 새 거래처 코드 맞추기'가 고침)
+  $lastReg = $master | Where-Object { "$($_.trCd)" -match '^\d{5}$' } | Sort-Object @{ Expression = { "$($_.insertDt)" }; Descending = $true }, @{ Expression = { "$($_.trCd)" }; Descending = $true } | Select-Object -First 1
   if ($lastReg) { $nextCode = [int]$lastReg.trCd + 1; Write-Host "  아마란스 거래처 $($master.Count)곳 / 가장 최근 등록 $($lastReg.trCd) $($lastReg.trNm) ($($lastReg.insertDt)) → 새 코드는 $('{0:D5}' -f $nextCode)부터" }
 } else { Write-Host '  아마란스 거래처 목록(오늘 것)이 없어 새 거래처 코드는 비워 둡니다' -ForegroundColor Yellow }
 function New-TrCode { while ($codeSet.ContainsKey(('{0:D5}' -f $script:nextCode))) { $script:nextCode++ }; $c0 = '{0:D5}' -f $script:nextCode; $codeSet[$c0] = 1; $script:nextCode++; $c0 }
@@ -93,6 +95,9 @@ $payLines = @($J | Where-Object { $_.계정과목코드 -eq '2530000' -and $_.�
 $ACC = @{ '복리후생비' = @('8110000', '5110000'); '여비교통비' = @('8120000', '5120000'); '접대비' = @('8130000', '5130000'); '교육훈련비' = @('8250000', '5250000'); '소모품비' = @('8300000', '5300000'); '지급수수료' = @('8310000', '5310000'); '해외출장비' = @('8340000', '8340000') }
 $ACCNM = @{ '8110000' = '복리후생비(판)'; '5110000' = '복리후생비(제)'; '8120000' = '여비교통비(판)'; '5120000' = '여비교통비(제)'; '8130000' = '접대비(판)'; '5130000' = '접대비(제)'; '8250000' = '교육훈련비(판)'; '5250000' = '교육훈련비(제)'; '8300000' = '소모품비(판)'; '5300000' = '소모품비(제)'; '8310000' = '지급수수료(판)'; '5310000' = '지급수수료(제)'; '8340000' = '해외출장비'; '1350000' = '부가세대급금'; '2530000' = '미지급금' }
 
+# 사용부서: 지출결의서 '작성자/작성부서'의 작성부서 이름 → 부서 코드 (2026-11-27 사용자 지정. 예: 품질관리본부_지점5 → 6600). 비용 줄에만 넣음
+$deptByName = @{}; if (Test-Path -LiteralPath $DeptFile) { foreach ($dr0 in (Import-Csv -LiteralPath $DeptFile -Encoding UTF8)) { $deptByName["$($dr0.부서명)".Trim()] = "$($dr0.부서코드)".Trim() } } else { Write-Host "  부서 코드표가 없어 사용부서는 비웁니다: $DeptFile" -ForegroundColor Yellow }
+$deptMiss = @{}
 $VOU = New-Object Collections.ArrayList      # 전표
 $SKIP = New-Object Collections.ArrayList   # 뺀 것
 $CHK = New-Object Collections.ArrayList    # 확인할 것
@@ -184,7 +189,12 @@ foreach ($d in $docs) { foreach ($it in $d['items']) {
   # 대리운전·택시는 적요 '_#' 앞에 '교통비'를 넣음(예: 고객응대 교통비_#하나8508, 2026-11-13 사용자 지정). 이미 '교통비'가 있으면 그대로
   $tail = ''; if (($use -match '대리' -or $desc -match '대리|택시' -or "$($rc['name'])" -match '대리|택시') -and $desc -notmatch '교통비') { $tail = ' 교통비' }
   $suffix = "$tail`_#$co$l4"; $rmk = "$desc".Trim(); if (($rmk + $suffix).Length -gt 80) { $rmk = $rmk.Substring(0, 80 - $suffix.Length).Trim() }; $rmk = $rmk + $suffix
+  $wd = "$($d['info']['작성자/작성부서'])"; $deptNm = $(if ($wd.Contains('/')) { $wd.Substring($wd.IndexOf('/') + 1).Trim() } else { '' })
+  if (-not $deptNm) { $deptNm = "$($it['dept'])".Trim() }; if (-not $deptNm) { $deptNm = "$($d['info']['기 안 부 서'])".Trim() }
+  $deptCd = $(if ($deptNm -and $deptByName.ContainsKey($deptNm)) { $deptByName[$deptNm] } else { '' })
+  if ($deptNm -and -not $deptCd -and -not $deptMiss.ContainsKey($deptNm)) { $deptMiss[$deptNm] = 1; [void]$CHK.Add([pscustomobject]@{ 문서 = $d['docNo']; 내용 = $desc; 확인 = "작성부서 '$deptNm'의 부서 코드를 부서코드.csv에서 못 찾아 사용부서를 비움 → 부서목록_받기.ps1로 코드표를 새로 받거나 아마란스에서 직접 넣으세요" }) }
   [void]$VOU.Add([pscustomobject]@{ 문서 = $d['docNo']; 문서제목 = $d['title']; 순번 = $it['no']; 날짜 = $dt; 용도 = $use; 내용 = $desc; 가맹점 = "$($rc['name'])"; 사업자번호 = $biz; 과세유형 = $kindTx; 거래처코드 = $trCd; 거래처명 = $trNm; 새거래처 = $newTr
+    사용부서 = $deptCd; 사용부서명 = $deptNm
     대표자 = (CleanCeo $rc['ceo']); 주소 = "$($rc['addr'])"; 전화 = (CleanTel $rc['tel']); 카드사 = $co; 카드번호 = ("$($rc['cardNo'])" -replace '\D', ''); 끝4 = $l4; 승인번호 = "$($rc['approval'])"
     계정 = $acct; 분류 = $cat; 프로젝트 = $pj; 프로젝트근거 = $pjWhy; 공급가액 = $sup; 부가세 = $vat; 합계 = $total; 부가세줄 = $vatLine; 적요 = $rmk; 참고 = $why })
 } }
@@ -216,7 +226,7 @@ $LINES = New-Object Collections.ArrayList
 foreach ($v in $VOU) {
   $dts = $v.날짜.ToString('yyyyMMdd'); $ty = $(if ($v.부가세줄) { '2' } else { '1' }); $ln = 0
   $base = @{ IN_DIV_CD = '1000'; MENU_DT = $dts; MENU_SQ = $v.작성번호; ISU_DOC = $v.적요; DOCU_TY = $ty; RMK_DC = $v.적요 }
-  $ln++; $e = $base.Clone(); $e.MENU_LN_SQ = $ln; $e.DRCR_FG = '3'; $e.ACCT_CD = $v.계정; $e.TR_CD = $v.거래처코드; $e.TR_NM = $v.거래처명; $e.ACCT_AM = $(if ($v.부가세줄) { $v.공급가액 } else { $v.합계 }); $e.PJT_CD = $v.프로젝트; $e.REG_NB = $v.사업자번호
+  $ln++; $e = $base.Clone(); $e.MENU_LN_SQ = $ln; $e.DRCR_FG = '3'; $e.ACCT_CD = $v.계정; $e.TR_CD = $v.거래처코드; $e.TR_NM = $v.거래처명; $e.ACCT_AM = $(if ($v.부가세줄) { $v.공급가액 } else { $v.합계 }); $e.PJT_CD = $v.프로젝트; $e.CT_DEPT = $v.사용부서; $e.REG_NB = $v.사업자번호
   if ($v.새거래처) { $e.CEO_NM = $v.대표자; $e.DIV_ADDR1 = $v.주소; $e.TEL = $v.전화 }
   [void]$LINES.Add($e)
   if ($v.부가세줄) { $ln++; $t = $base.Clone(); $t.MENU_LN_SQ = $ln; $t.DRCR_FG = '3'; $t.ACCT_CD = '1350000'; $t.TR_CD = $v.거래처코드; $t.TR_NM = $v.거래처명; $t.ACCT_AM = $v.부가세; $t.REG_NB = $v.사업자번호
@@ -251,7 +261,7 @@ try {
   $wb = $xl.Workbooks.Open($Template, 0, $true); $wb.SaveAs($tmpUp, 51)
   $sh = $wb.Worksheets.Item(1); $maxC = $sh.UsedRange.Columns.Count; $colOf = @{}; $isText = @{}
   for ($ci = 1; $ci -le $maxC; $ci++) { $cd = "$($sh.Cells(2, $ci).Value2)".Trim(); if ($cd -and -not $colOf.ContainsKey($cd)) { $colOf[$cd] = $ci; $isText[$ci] = ("$($sh.Cells(3, $ci).Value2)" -match '타입\s*:\s*문자') } }
-  $codes = 'IN_DIV_CD', 'MENU_DT', 'MENU_SQ', 'MENU_LN_SQ', 'ISU_DOC', 'DOCU_TY', 'DRCR_FG', 'ACCT_CD', 'TR_CD', 'TR_NM', 'ACCT_AM', 'RMK_DC', 'VAT_DIV_CD', 'ISS_DT', 'TAX_FG', 'SUP_AM', 'CT_NB', 'PJT_CD', 'CT_DEAL', 'REG_NB', 'CEO_NM', 'DIV_ADDR1', 'TEL'
+  $codes = 'IN_DIV_CD', 'MENU_DT', 'MENU_SQ', 'MENU_LN_SQ', 'ISU_DOC', 'DOCU_TY', 'DRCR_FG', 'ACCT_CD', 'TR_CD', 'TR_NM', 'ACCT_AM', 'RMK_DC', 'VAT_DIV_CD', 'ISS_DT', 'TAX_FG', 'SUP_AM', 'CT_NB', 'PJT_CD', 'CT_DEPT', 'CT_DEAL', 'REG_NB', 'CEO_NM', 'DIV_ADDR1', 'TEL'
   $miss = @($codes | Where-Object { -not $colOf.ContainsKey($_) }); if ($miss.Count) { throw "양식에 칸이 없음: $($miss -join ', ')" }
   $n = $LINES.Count; $arr = New-Object 'object[,]' $n, $maxC
   for ($i = 0; $i -lt $n; $i++) { foreach ($cd in $codes) { $val = $LINES[$i][$cd]; if ($null -ne $val -and "$val" -ne '') { $arr[$i, ($colOf[$cd] - 1)] = $(if ($isText[$colOf[$cd]]) { [string]$val } else { $val }) } } }
@@ -284,9 +294,9 @@ try {
     $h = $s.Range($s.Cells(1, 1), $s.Cells(1, $hdr.Count)); $h.Font.Bold = $true; $h.Interior.Color = 0xF2E6DD
     [void]$s.Columns.AutoFit()
   }
-  $s1rows = $VOU | ForEach-Object { [pscustomobject]@{ 날짜 = $_.날짜; 작성번호 = $_.작성번호; 문서 = $_.문서; 용도 = $_.용도; 내용 = $_.내용; 가맹점 = $_.가맹점; 사업자번호 = $_.사업자번호; 과세유형 = $_.과세유형; 거래처 = "[$($_.거래처코드)] $($_.거래처명)"; 새거래처 = $_.새거래처; 계정 = "[$($_.계정)] $($ACCNM[$_.계정])"; 프로젝트 = $_.프로젝트; 공급가액 = $_.공급가액; 부가세 = $_.부가세; 합계 = $_.합계; 부가세대급금 = $_.부가세줄; 카드 = "$($_.카드사)$($_.끝4) → [$($CARD[$_.카드사][0])] $($CARD[$_.카드사][1])"; 승인번호 = $_.승인번호; 적요 = $_.적요 } }
-  Fill $wb.Worksheets.Item(1) '전표(카드 1건=1장)' @('날짜', '작성번호', '문서', '용도', '내용', '가맹점', '사업자번호', '과세유형', '거래처', '새거래처', '계정', '프로젝트', '공급가액', '부가세', '합계', '부가세대급금', '카드', '승인번호', '적요') $s1rows
-  $wb.Worksheets.Item(1).Range('M:O').NumberFormat = '#,##0'
+  $s1rows = $VOU | ForEach-Object { [pscustomobject]@{ 날짜 = $_.날짜; 작성번호 = $_.작성번호; 문서 = $_.문서; 용도 = $_.용도; 내용 = $_.내용; 가맹점 = $_.가맹점; 사업자번호 = $_.사업자번호; 과세유형 = $_.과세유형; 거래처 = "[$($_.거래처코드)] $($_.거래처명)"; 새거래처 = $_.새거래처; 계정 = "[$($_.계정)] $($ACCNM[$_.계정])"; 프로젝트 = $_.프로젝트; 사용부서 = $(if ($_.사용부서) { "[$($_.사용부서)] $($_.사용부서명)" } elseif ($_.사용부서명) { "(코드 없음) $($_.사용부서명)" } else { '' }); 공급가액 = $_.공급가액; 부가세 = $_.부가세; 합계 = $_.합계; 부가세대급금 = $_.부가세줄; 카드 = "$($_.카드사)$($_.끝4) → [$($CARD[$_.카드사][0])] $($CARD[$_.카드사][1])"; 승인번호 = $_.승인번호; 적요 = $_.적요 } }
+  Fill $wb.Worksheets.Item(1) '전표(카드 1건=1장)' @('날짜', '작성번호', '문서', '용도', '내용', '가맹점', '사업자번호', '과세유형', '거래처', '새거래처', '계정', '프로젝트', '사용부서', '공급가액', '부가세', '합계', '부가세대급금', '카드', '승인번호', '적요') $s1rows
+  $wb.Worksheets.Item(1).Range('N:P').NumberFormat = '#,##0'
   if ($CHK.Count) { Fill $wb.Worksheets.Item(2) '확인할 것' @('문서', '내용', '확인') $CHK } else { $wb.Worksheets.Item(2).Name = '확인할 것'; $wb.Worksheets.Item(2).Range('A1').Value2 = '확인할 것 없음' }
   if ($SKIP.Count) { Fill $wb.Worksheets.Item(3) '뺀 것(이미 전표 있음)' @('문서', '내용', '날짜', '금액', '카드', '사유') $SKIP; $wb.Worksheets.Item(3).Range('D:D').NumberFormat = '#,##0' } else { $wb.Worksheets.Item(3).Name = '뺀 것'; $wb.Worksheets.Item(3).Range('A1').Value2 = '없음' }
   $wb.Worksheets.Item(1).Activate()
