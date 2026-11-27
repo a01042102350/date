@@ -9,7 +9,8 @@
   [string]$VatBook = 'C:\ai\매월마감\국내자동전표\참고4.xlsx',          # 부가세 매입매출장: 결제카드 거래처코드·카드번호
   [string]$BizStatus = "$env:TEMP\카드전표\사업자상태.csv",          # 사업자상태_조회.ps1 결과(국세청 일반/간이)
   [int]$StartNo = 3000,                                             # 작성번호: 날짜마다 3000부터(손 전표·해외 1000·국내 2000과 안 겹치게)
-  [string]$DeptFile = (Join-Path $PSScriptRoot '부서코드.csv')       # 아마란스 부서 코드표(부서목록_받기.ps1) → 사용부서(CT_DEPT)
+  [string]$DeptFile = (Join-Path $PSScriptRoot '부서코드.csv'),      # 아마란스 부서 코드표(부서목록_받기.ps1) → 사용부서(CT_DEPT)
+  [string[]]$NameCards = @('0073')                                  # 적요에 사원 이름을 붙이는 카드 끝4자리 (대표님 의전 하나카드 #0073 = 박새별, 2026-11-27 사용자)
 )
 # 지출결의서(법인카드) → 아마란스 자동전표처리(일반) 업로드 엑셀 + 검토 엑셀
 # 규칙(2026-11-13 사용자 지정 + 1~11월 실제 카드 전표):
@@ -216,7 +217,14 @@ foreach ($d in $docs) { foreach ($it in $d['items']) {
   }
   # 대리운전·택시는 적요 '_#' 앞에 '교통비'를 넣음(예: 고객응대 교통비_#하나8508, 2026-11-13 사용자 지정). 이미 '교통비'가 있으면 그대로
   $tail = ''; if (($use -match '대리' -or $desc -match '대리|택시' -or "$($rc['name'])" -match '대리|택시') -and $desc -notmatch '교통비') { $tail = ' 교통비' }
-  $suffix = "$tail`_#$co$l4"; $rmk = "$desc".Trim(); if (($rmk + $suffix).Length -gt 80) { $rmk = $rmk.Substring(0, 80 - $suffix.Length).Trim() }; $rmk = $rmk + $suffix
+  # 대표님 의전 카드(#0073)는 적요에 쓴 사람 이름을 붙임: '업무수행 교통비(박새별)_#하나0073' (2026-11-27 사용자 "적요를 잘 넣어야 해, 박새별이 많이 들어가")
+  #  예전 #0073 전표(8~10월 약 40%)처럼 대표님·회장님 항공권에는 안 붙임. 내용이 이미 '(…)'로 끝나거나 이름이 들어 있으면 그대로
+  $who = ''
+  if ($NameCards -contains $l4) {
+    $emp = "$($it['emp'])".Trim(); if (-not $emp) { $wd0 = "$($d['info']['작성자/작성부서'])"; $emp = $(if ($wd0.Contains('/')) { $wd0.Substring(0, $wd0.IndexOf('/')).Trim() } else { '' }) }
+    if ($emp -and $emp -ne '-' -and $desc -notmatch [regex]::Escape($emp) -and $desc -notmatch '항공|발권|항권공|비행기|탑승권' -and "$desc".Trim() -notmatch '\)$') { $who = "($emp)" }
+  }
+  $suffix = "$tail$who`_#$co$l4"; $rmk = "$desc".Trim(); if (($rmk + $suffix).Length -gt 80) { $rmk = $rmk.Substring(0, 80 - $suffix.Length).Trim() }; $rmk = $rmk + $suffix
   $wd = "$($d['info']['작성자/작성부서'])"; $deptNm = $(if ($wd.Contains('/')) { $wd.Substring($wd.IndexOf('/') + 1).Trim() } else { '' })
   if (-not $deptNm) { $deptNm = "$($it['dept'])".Trim() }; if (-not $deptNm) { $deptNm = "$($d['info']['기 안 부 서'])".Trim() }
   $deptCd = $(if ($deptNm -and $deptByName.ContainsKey($deptNm)) { $deptByName[$deptNm] } else { '' })
