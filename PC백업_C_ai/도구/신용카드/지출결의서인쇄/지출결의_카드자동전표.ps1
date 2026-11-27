@@ -10,7 +10,7 @@
   [string]$BizStatus = "$env:TEMP\카드전표\사업자상태.csv",          # 사업자상태_조회.ps1 결과(국세청 일반/간이)
   [int]$StartNo = 3000,                                             # 작성번호: 날짜마다 3000부터(손 전표·해외 1000·국내 2000과 안 겹치게)
   [string]$DeptFile = (Join-Path $PSScriptRoot '부서코드.csv'),      # 아마란스 부서 코드표(부서목록_받기.ps1) → 사용부서(CT_DEPT)
-  [string[]]$NameCards = @('0073')                                  # 적요에 사원 이름을 붙이는 카드 끝4자리 (대표님 의전 하나카드 #0073 = 박새별, 2026-11-27 사용자)
+  [bool]$AddName = $true                                            # 적요에 사람 이름이 없으면 '(사원 또는 작성자)'를 붙임 — 모든 카드 (2026-11-27 사용자)
 )
 # 지출결의서(법인카드) → 아마란스 자동전표처리(일반) 업로드 엑셀 + 검토 엑셀
 # 규칙(2026-11-13 사용자 지정 + 1~11월 실제 카드 전표):
@@ -99,6 +99,39 @@ $ACCNM = @{ '8110000' = '복리후생비(판)'; '5110000' = '복리후생비(제
 # 사용부서: 지출결의서 '작성자/작성부서'의 작성부서 이름 → 부서 코드 (2026-11-27 사용자 지정. 예: 품질관리본부_지점5 → 6600). 비용 줄에만 넣음
 $deptByName = @{}; if (Test-Path -LiteralPath $DeptFile) { foreach ($dr0 in (Import-Csv -LiteralPath $DeptFile -Encoding UTF8)) { $deptByName["$($dr0.부서명)".Trim()] = "$($dr0.부서코드)".Trim() } } else { Write-Host "  부서 코드표가 없어 사용부서는 비웁니다: $DeptFile" -ForegroundColor Yellow }
 $deptMiss = @{}
+# 적요 이름 붙이기용: 이번 지출결의서에 나온 사람 이름(사원·작성자) + 사람 이름 모양 알아보기
+$KNOWN = @{}; foreach ($d0 in $docs) { $w0 = "$($d0['info']['작성자/작성부서'])"; if ($w0.Contains('/')) { $n0 = $w0.Substring(0, $w0.IndexOf('/')).Trim(); if ($n0.Length -ge 2) { $KNOWN[$n0] = 1 } }; foreach ($i0 in $d0['items']) { $e0 = "$($i0['emp'])".Trim(); if ($e0.Length -ge 2 -and $e0 -ne '-') { $KNOWN[$e0] = 1 } } }
+$NOTNAME = '영업|생산|품질|관리|본사|공장|외근|야근|출장|회의|점심|저녁|중식|석식|조식|간식|기타|일반|법인|개인|현금|국내|해외|주차|택시|대리|교통|숙박|식대|음료|다과|선물|공항|병원|문구|구매|구입|창원|마산|김해|부산|서울|대전|세종|울산|진주|사무실|임원|직원|손님|고객|업체|협력|신규|기존|정기|오전|오후|왕복|편도|신입|대표|회장|사장|담당|현장|경영|기획|재무|회계|인사|총무|구매팀|영업팀'
+function Test-HasName([string]$s) {
+  if ($s -match '외\s*\d+\s*(명|인)') { return $true }                                   # '정우석 팀장 외 1명'
+  foreach ($k in $KNOWN.Keys) { if ($s.Contains($k)) { return $true } }                 # 이번 지출결의서의 사원·작성자 이름
+  foreach ($m in [regex]::Matches($s, '([가-힣]{2,4})\s?(팀장|과장|차장|부장|수석|책임|선임|주임|실장|본부장|소장|공장장|사원|매니저|이사|상무|전무)')) { if ($m.Groups[1].Value -notmatch "^($NOTNAME)$") { return $true } }   # '서정수실장', '박준모 대표이사'
+  foreach ($m in [regex]::Matches($s, '\(\s*([가-힣]{2,4})[\s,·/)]')) { if ($m.Groups[1].Value -notmatch "^($NOTNAME)$") { return $true } }   # '(정우석)', '(장성우,김항석)'
+  return $false
+}
+# 적요 낱말 맞추기 (2026-11-27 사용자): ① 식대·식사는 영수증 거래 시간으로 오후 4시 전 = 중식대, 4시부터 = 석식대 ② 음료·음료수는 '음료대'
+#  · 내용에 식사 낱말(중식·석식·식대·식사·저녁식대 등)이 하나면 그 낱말을 시간에 맞는 중식대/석식대로 바꿈. 중식·석식이 같이 있으면(여러 끼) 그대로, 조식은 그대로
+#  · 식사 낱말이 없어도 용도가 식대·식사면 뒤에 중식대/석식대를 붙임(예: 용도 '식대(영업)' + 내용 '고객업무협의' → '고객업무협의 석식대'). 영수증 시간이 없으면 안 바꿈
+#  · 음료·음료수(구매·구입·값·비)는 '음료대'로. 다과·간식·식사와 같이 산 건은 그대로
+function Fix-RemarkText([string]$desc, [string]$use, [string]$dtText) {
+  $s = "$desc".Trim()
+  $hh = $null; if ($dtText -match '\b(\d{1,2}):(\d{2})') { $hh = [int]$Matches[1] }
+  $mealRx = '(?:점심|저녁|중식|석식)\s?(?:식대|식사)|중식대|석식대|식사대|중식|석식|식사|식대'
+  $nonMeal = ($s -match '교통|택시|대리|주차|숙박|유류|주유|항공|렌트|통행') -or ("$use" -match '교통|유류|숙박|주차|항공|렌트')   # 택시·숙박 등에 들어간 '석식 후' 같은 말은 안 바꿈
+  $drink = ($s -match '음료') -and ($s -notmatch '다과|간식|도시락|과자|디저트')
+  if ($drink) {
+    # 음료 건: '중식 음료' → '음료대' (사용자가 11/26 파일에서 '협의 중식 음료'를 '협의 음료대'로 고침)
+    $s = $s -replace '(?:중식|석식|점심|저녁)\s?(?=음료)', ''
+    $s = $s -replace '음료수?\s?(?:구매|구입|값|비|대)?', '음료대'
+  }
+  elseif ($null -ne $hh -and -not $nonMeal -and $s -notmatch '조식|아침') {
+    $want = $(if ($hh -lt 16) { '중식대' } else { '석식대' })
+    $both = ($s -match '중식|점심') -and ($s -match '석식|저녁')
+    if ($s -match $mealRx) { if (-not $both) { $s = ([regex]$mealRx).Replace($s, $want, 1); $s = $s -replace "$want\s*대", $want } }
+    elseif ("$use" -match '식대|식사|중식|석식' -and $s -notmatch '다과|간식|도시락|커피') { $s = "$s $want".Trim() }
+  }
+  return $s.Trim()
+}
 $VOU = New-Object Collections.ArrayList      # 전표
 $SKIP = New-Object Collections.ArrayList   # 뺀 것
 $CHK = New-Object Collections.ArrayList    # 확인할 것
@@ -216,15 +249,19 @@ foreach ($d in $docs) { foreach ($it in $d['items']) {
     $trCd = $TRADD[$nk].코드; $trNm = $TRADD[$nk].이름
   }
   # 대리운전·택시는 적요 '_#' 앞에 '교통비'를 넣음(예: 고객응대 교통비_#하나8508, 2026-11-13 사용자 지정). 이미 '교통비'가 있으면 그대로
+  $descR = Fix-RemarkText $desc $use "$($rc['dt'])"   # 적요용 내용: 중식대/석식대(영수증 시간), 음료대
   $tail = ''; if (($use -match '대리' -or $desc -match '대리|택시' -or "$($rc['name'])" -match '대리|택시') -and $desc -notmatch '교통비') { $tail = ' 교통비' }
-  # 대표님 의전 카드(#0073)는 적요에 쓴 사람 이름을 붙임: '업무수행 교통비(박새별)_#하나0073' (2026-11-27 사용자 "적요를 잘 넣어야 해, 박새별이 많이 들어가")
-  #  예전 #0073 전표(8~10월 약 40%)처럼 대표님·회장님 항공권에는 안 붙임. 내용이 이미 '(…)'로 끝나거나 이름이 들어 있으면 그대로
+  # 적요에 쓴 사람 이름: 내용에 사람 이름이 없으면 지출결의서 '사원'(없으면 '작성자') 이름을 붙임 → '업무수행 교통비(박새별)_#하나0073', '주유비용(전승우)_#하나8508'
+  #  2026-11-27 사용자: 처음엔 대표님 하나카드(#0073 박새별)만 → "이름이 없는 것들은 작성자 이름을 박새별처럼 붙여 줘" 모든 카드로 넓힘
+  #  안 붙이는 것: 이미 사람 이름이 있음(사원·작성자 등 이번 지출결의서에 나온 이름, '(정우석)'·'(장성우,김항석)' 같은 괄호 이름, '정우석 팀장'·'외 1명')
+  #               대표님·회장님 항공권(예전 #0073 전표에 한 번도 안 붙임)
   $who = ''
-  if ($NameCards -contains $l4) {
-    $emp = "$($it['emp'])".Trim(); if (-not $emp) { $wd0 = "$($d['info']['작성자/작성부서'])"; $emp = $(if ($wd0.Contains('/')) { $wd0.Substring(0, $wd0.IndexOf('/')).Trim() } else { '' }) }
-    if ($emp -and $emp -ne '-' -and $desc -notmatch [regex]::Escape($emp) -and $desc -notmatch '항공|발권|항권공|비행기|탑승권' -and "$desc".Trim() -notmatch '\)$') { $who = "($emp)" }
+  if ($AddName) {
+    $emp = "$($it['emp'])".Trim(); if (-not $emp -or $emp -eq '-') { $wd0 = "$($d['info']['작성자/작성부서'])"; $emp = $(if ($wd0.Contains('/')) { $wd0.Substring(0, $wd0.IndexOf('/')).Trim() } else { '' }) }
+    $airRmk = ($desc -match '항공|발권|항권공|비행기|탑승권') -and ($desc -match '대표|회장|사장')
+    if ($emp -and $emp -ne '-' -and -not $airRmk -and -not (Test-HasName $descR)) { $who = "($emp)" }
   }
-  $suffix = "$tail$who`_#$co$l4"; $rmk = "$desc".Trim(); if (($rmk + $suffix).Length -gt 80) { $rmk = $rmk.Substring(0, 80 - $suffix.Length).Trim() }; $rmk = $rmk + $suffix
+  $suffix = "$tail$who`_#$co$l4"; $rmk = "$descR".Trim(); if (($rmk + $suffix).Length -gt 80) { $rmk = $rmk.Substring(0, 80 - $suffix.Length).Trim() }; $rmk = $rmk + $suffix
   $wd = "$($d['info']['작성자/작성부서'])"; $deptNm = $(if ($wd.Contains('/')) { $wd.Substring($wd.IndexOf('/') + 1).Trim() } else { '' })
   if (-not $deptNm) { $deptNm = "$($it['dept'])".Trim() }; if (-not $deptNm) { $deptNm = "$($d['info']['기 안 부 서'])".Trim() }
   $deptCd = $(if ($deptNm -and $deptByName.ContainsKey($deptNm)) { $deptByName[$deptNm] } else { '' })
