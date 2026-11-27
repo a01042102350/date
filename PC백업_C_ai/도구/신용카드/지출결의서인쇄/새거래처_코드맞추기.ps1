@@ -53,8 +53,6 @@ $chg = @{}; foreach ($k in $map.Keys) { if ($map[$k][0] -ne $k) { $chg[$k] = $ma
 if (-not $chg.Count) { Write-Host '코드가 파일과 같습니다. 고칠 것 없음.' -ForegroundColor Green; if ($Pause) { [void](Read-Host '창을 닫으려면 Enter') }; return }
 
 # 3) 백업 후 전표·검토 파일의 거래처코드만 바꿈
-$bk = Join-Path (Split-Path $Voucher) '백업'; New-Item -ItemType Directory -Force $bk | Out-Null; $ts = Get-Date -Format 'yyyyMMdd_HHmmss'
-foreach ($f in $Voucher, $review) { if (Test-Path -LiteralPath $f) { Copy-Item -LiteralPath $f (Join-Path $bk ([IO.Path]::GetFileNameWithoutExtension($f) + "_코드맞추기전_$ts.xlsx")) -Force } }
 # 임시 폴더 사본에서 고치고, 바뀐 것을 확인한 뒤 원래 자리에 덮어씀
 $work = Join-Path $env:TEMP '카드전표'; New-Item -ItemType Directory -Force $work | Out-Null
 $wV = Join-Path $work '코드맞추기_전표.xlsx'; $wR = Join-Path $work '코드맞추기_검토.xlsx'
@@ -86,7 +84,14 @@ foreach ($p in @(Get-Process EXCEL -ErrorAction SilentlyContinue | Where-Object 
 $chk = Read-Xlsx $wV 1; $h2 = ($chk.Rows | Where-Object { $_.R -eq 2 }).Cells; $cc = ($h2.Keys | Where-Object { "$($h2[$_])".Trim() -eq 'TR_CD' } | Select-Object -First 1)
 $vals = @($chk.Rows | Where-Object { $_.R -ge 4 } | ForEach-Object { "$($_.Cells[$cc])".Trim() })
 $left = @($vals | Where-Object { $chg.ContainsKey($_) }); $got = @($vals | Where-Object { $chg.Values -contains $_ })
-if ($left.Count -or $got.Count -ne $nV) { throw "고친 파일 확인 실패(옛 코드 $($left.Count)칸 남음, 새 코드 $($got.Count)칸) → 원래 파일은 그대로 둠" }
+if ($nV -eq 0) {
+  if ($got.Count) { Write-Host "전표 파일이 이미 실제 코드로 맞춰져 있습니다(새 거래처 $($got.Count)칸). 고칠 것 없음." -ForegroundColor Green }
+  else { Write-Host '전표 파일에서 새 거래처 코드를 찾지 못했습니다. 파일을 확인해 주세요.' -ForegroundColor Yellow }
+  if ($Pause) { [void](Read-Host '창을 닫으려면 Enter') }; return
+}
+if ($left.Count -or $got.Count -lt $nV) { throw "고친 파일 확인 실패(옛 코드 $($left.Count)칸 남음, 새 코드 $($got.Count)칸) → 원래 파일은 그대로 둠" }
+$bk = Join-Path (Split-Path $Voucher) '백업'; New-Item -ItemType Directory -Force $bk | Out-Null; $ts = Get-Date -Format 'yyyyMMdd_HHmmss'
+foreach ($f in $Voucher, $review) { if (Test-Path -LiteralPath $f) { Copy-Item -LiteralPath $f (Join-Path $bk ([IO.Path]::GetFileNameWithoutExtension($f) + "_코드맞추기전_$ts.xlsx")) -Force } }
 Copy-Item -LiteralPath $wV $Voucher -Force; if (Test-Path -LiteralPath $wR) { Copy-Item -LiteralPath $wR $review -Force }
 Write-Host '끝. 이제 전표 파일을 자동전표처리에 올리면 됩니다.' -ForegroundColor Green
 if ($Pause) { [void](Read-Host '창을 닫으려면 Enter') }
